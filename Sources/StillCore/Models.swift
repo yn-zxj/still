@@ -12,6 +12,18 @@ public enum ReminderStyle: String, Codable, CaseIterable {
     }
 }
 
+public enum AppearanceTheme: String, Codable, CaseIterable, Identifiable {
+    case light, dark, system
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .light: return "浅色"
+        case .dark: return "深色"
+        case .system: return "跟随系统"
+        }
+    }
+}
+
 public struct MonitorSettings: Codable, Equatable {
     public var workMinutes = 45
     public var restMinutes = 5
@@ -23,6 +35,7 @@ public struct MonitorSettings: Codable, Equatable {
     public var soundEnabled = true
     public var notificationsEnabled = false
     public var motionEnabled = true
+    public var appearanceTheme: AppearanceTheme = .light
     // Kept in the Codable shape so older settings continue to decode.
     // The menu bar now always shows only the icon and fatigue percentage.
     public var showMenuCountdown = true
@@ -33,7 +46,7 @@ public struct MonitorSettings: Codable, Equatable {
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes, mode
-        case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, showMenuCountdown
+        case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
         case showMenuFatigue, reminderStyle, reminderMessage, showDailyTimeInReminder
     }
     public init(from decoder: Decoder) throws {
@@ -49,6 +62,7 @@ public struct MonitorSettings: Codable, Equatable {
         soundEnabled = try c.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? soundEnabled
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? notificationsEnabled
         motionEnabled = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? motionEnabled
+        appearanceTheme = try c.decodeIfPresent(AppearanceTheme.self, forKey: .appearanceTheme) ?? appearanceTheme
         showMenuCountdown = try c.decodeIfPresent(Bool.self, forKey: .showMenuCountdown) ?? showMenuCountdown
         showMenuFatigue = try c.decodeIfPresent(Bool.self, forKey: .showMenuFatigue) ?? showMenuFatigue
         reminderStyle = try c.decodeIfPresent(ReminderStyle.self, forKey: .reminderStyle) ?? reminderStyle

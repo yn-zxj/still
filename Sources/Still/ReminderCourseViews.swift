@@ -28,7 +28,7 @@ struct ReminderRecommendationCard: View {
                         LineIcon(systemName: "play", size: 18).foregroundStyle(Palette.accent)
                     }
                 }.buttonStyle(.plain).accessibilityLabel("跟练推荐课程：\(course.title)，\(course.displayDurationMinutes)分钟")
-            }.padding(16).background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 20))
+            }.padding(16).background(Palette.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 20))
                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.line, lineWidth: 1))
         }
     }
@@ -61,7 +61,7 @@ struct ReminderWorkoutView: View {
                         ZStack {
                             if player.loading {
                                 CourseVideoPoster(resource: course.coverURL, remoteImages: model.library.remoteThumbnails)
-                                ProgressView().padding(18).background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
+                                ProgressView().padding(18).background(Palette.surface.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
                             } else { CourseVideoSurface(player: player.player, aspectRatio: player.videoAspectRatio) }
                         }.frame(width: geometry.size.width, height: geometry.size.height)
                     }.aspectRatio(player.videoAspectRatio, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 18))
@@ -112,7 +112,6 @@ struct ReminderWorkoutView: View {
                     }
             }.fixedSize(horizontal: false, vertical: true).padding(.top, 4).padding(.bottom, 8)
         }.padding(24).background(Palette.background).foregroundStyle(Palette.ink).tint(Palette.accent)
-            .environment(\.colorScheme, .light)
             .task(id: course.id) {
                 for _ in 0..<350 {
                     guard !Task.isCancelled else { return }

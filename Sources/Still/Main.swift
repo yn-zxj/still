@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import StillCore
 
 @main
 struct StillMain {
@@ -39,8 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindow.title = "息间 · 用眼与休息"
         mainWindow.titleVisibility = .hidden
         mainWindow.titlebarAppearsTransparent = true
-        mainWindow.backgroundColor = NSColor(Palette.background)
-        mainWindow.appearance = NSAppearance(named: .aqua)
+        mainWindow.backgroundColor = Palette.backgroundNSColor
         mainWindow.minSize = NSSize(width: 1020, height: 720)
         mainWindow.isReleasedWhenClosed = false
         mainWindow.contentView = NSHostingView(rootView: root)
@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         mainWindow.center()
         setupStatusItem()
+        model.applyAppearance = { [weak self] in self?.applyWindowAppearance() }
         model.showDashboard = { [weak self] in self?.showMainWindow() }
         model.showPreview = { [weak self] in self?.presentRest(.preview) }
         model.showReminder = { [weak self] in self?.presentRest(.due) }
@@ -57,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.hideAllReminders = { [weak self] in self?.reminders?.close() }
         model.hideReminder = { [weak self] in self?.reminders?.dismissIfDue() }
         model.refreshMenu = { [weak self] in self?.refreshStatusItem() }
+        applyWindowAppearance()
         showMainWindow()
         refreshStatusItem()
         if ProcessInfo.processInfo.arguments.contains("--preview-rest") { presentRest(.preview) }
@@ -129,8 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.deliverNotification(presentation)
             return
         }
-        if reminders == nil { reminders = ReminderWindowController(model: model) }
+        if reminders == nil {
+            reminders = ReminderWindowController(model: model)
+            reminders?.applyAppearance(model.settings.appearanceTheme.appearance)
+        }
         reminders?.present(presentation, style: model.settings.reminderStyle == .fullScreen ? .fullScreen : .mini)
+    }
+
+    private func applyWindowAppearance() {
+        let appearance = model.settings.appearanceTheme.appearance
+        mainWindow.appearance = appearance
+        popover.appearance = appearance
+        reminders?.applyAppearance(appearance)
     }
 
     private func showMainWindow() { mainWindow.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true) }
@@ -146,4 +158,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) { updateAnimationVisibility(); model?.refreshNotificationStatus() }
     func applicationDidResignActive(_ notification: Notification) { model?.appIsActive = false }
     func applicationWillTerminate(_ notification: Notification) { model?.shutdown() }
+}
+
+private extension AppearanceTheme {
+    var appearance: NSAppearance? {
+        switch self {
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        case .system: return nil
+        }
+    }
 }

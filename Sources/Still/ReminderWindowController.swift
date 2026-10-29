@@ -17,6 +17,7 @@ final class ReminderWindowController {
     private var panels: [RestPanel] = []
     private var current: RestPresentation?
     private var currentStyle: ReminderStyle = .mini
+    private var appearance: NSAppearance?
     private var screenObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
     static var windowLevel: NSWindow.Level { .screenSaver }
@@ -51,7 +52,7 @@ final class ReminderWindowController {
                                   styleMask: full ? [.borderless] : [.titled, .fullSizeContentView, .nonactivatingPanel],
                                   backing: .buffered, defer: false)
             panel.title = full ? "息间 · 全屏提醒" : "息间 · 休息"
-            panel.appearance = NSAppearance(named: .aqua)
+            panel.appearance = appearance
             panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false; panel.isFloatingPanel = true
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             panel.level = Self.windowLevel
@@ -99,6 +100,10 @@ final class ReminderWindowController {
         }
     }
     func dismissIfDue() { if current == .due && content.course == nil { close() } }
+    func applyAppearance(_ appearance: NSAppearance?) {
+        self.appearance = appearance
+        for panel in panels { panel.appearance = appearance }
+    }
     func close() {
         if let course = content.course {
             if content.presentation == .preview { content.previewPlayer.unload() }

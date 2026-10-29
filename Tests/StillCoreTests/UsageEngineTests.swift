@@ -224,7 +224,17 @@ struct UsageEngineTests {
         #expect(settings.remindersEnabled == false)
         #expect(settings.showMenuCountdown == false)
         #expect(settings.reminderStyle == .mini)
+        #expect(settings.appearanceTheme == .light)
         #expect(settings.showMenuFatigue)
+    }
+
+    @Test func testAppearanceThemePersists() throws {
+        for theme in AppearanceTheme.allCases {
+            var settings = MonitorSettings()
+            settings.appearanceTheme = theme
+            let saved = try JSONDecoder().decode(MonitorSettings.self, from: JSONEncoder().encode(settings))
+            #expect(saved.appearanceTheme == theme)
+        }
     }
 
     @Test func testReminderModesAndMessagePersist() throws {

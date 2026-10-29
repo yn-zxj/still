@@ -1,21 +1,50 @@
+import AppKit
 import SwiftUI
 
 enum Palette {
-    static let background = Color(hex: 0xF7F8FC)
-    static let sidebar = Color(hex: 0xF0F0F8)
-    static let surface = Color.white
-    static let ink = Color(hex: 0x29283E)
-    static let secondary = Color(hex: 0x7D7C91)
-    static let accent = Color(hex: 0x7864D9)
-    static let accentDark = Color(hex: 0x5C47BD)
-    static let lavender = Color(hex: 0xEEEBFA)
-    static let mint = Color(hex: 0xCEE8DE)
-    static let green = Color(hex: 0x4C8C78)
-    static let line = Color(hex: 0xE8E8F1)
+    static let backgroundNSColor = adaptiveNS("background", light: 0xF7F8FC, dark: 0x17171F)
+    static let background = Color(nsColor: backgroundNSColor)
+    static let sidebar = adaptive("sidebar", light: 0xF0F0F8, dark: 0x111117)
+    static let surface = adaptive("surface", light: 0xFFFFFF, dark: 0x24242E)
+    static let ink = adaptive("ink", light: 0x29283E, dark: 0xF4F2FA)
+    static let secondary = adaptive("secondary", light: 0x7D7C91, dark: 0xA5A2B5)
+    static let accent = adaptive("accent", light: 0x7864D9, dark: 0x9D8AF4)
+    static let accentDark = adaptive("accentDark", light: 0x5C47BD, dark: 0xC2B7FF)
+    static let lavender = adaptive("lavender", light: 0xEEEBFA, dark: 0x312C46)
+    static let mint = adaptive("mint", light: 0xCEE8DE, dark: 0x1E382F)
+    static let green = adaptive("green", light: 0x4C8C78, dark: 0x82C9AD)
+    static let line = adaptive("line", light: 0xE8E8F1, dark: 0x383744)
+    static let heroStart = adaptive("heroStart", light: 0xF0EDFB, dark: 0x2A2441)
+    static let heroMiddle = adaptive("heroMiddle", light: 0xF2F2FA, dark: 0x232330)
+    static let heroEnd = adaptive("heroEnd", light: 0xE9F1F0, dark: 0x1D302C)
+    static let restStart = adaptive("restStart", light: 0xF6F4FC, dark: 0x242138)
+    static let restEnd = adaptive("restEnd", light: 0xEFF5F2, dark: 0x1B2A28)
+    static let panelEnd = adaptive("panelEnd", light: 0xF3F4FA, dark: 0x1B1C25)
+
+    private static func adaptive(_ name: String, light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: adaptiveNS(name, light: light, dark: dark))
+    }
+
+    private static func adaptiveNS(_ name: String, light: UInt32, dark: UInt32) -> NSColor {
+        NSColor(name: NSColor.Name("local.still.palette.\(name)"), dynamicProvider: { appearance in
+            NSColor(hex: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light)
+        })
+    }
 }
 
 extension Color {
     init(hex: UInt32) { self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1) }
+}
+
+private extension NSColor {
+    convenience init(hex: UInt32) {
+        self.init(
+            srgbRed: CGFloat((hex >> 16) & 255) / 255,
+            green: CGFloat((hex >> 8) & 255) / 255,
+            blue: CGFloat(hex & 255) / 255,
+            alpha: 1
+        )
+    }
 }
 
 extension View {
@@ -82,10 +111,31 @@ struct SoftButtonStyle: ButtonStyle {
     }
 }
 
+struct SettingsButtonStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 16)
+            .frame(minHeight: 36)
+            .foregroundStyle(prominent ? Color.white : Palette.ink)
+            .background(prominent ? Palette.accent : Palette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(prominent ? Color.clear : Palette.line, lineWidth: 1)
+            )
+            .brightness(configuration.isPressed ? -0.04 : 0)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
 struct FlowerView: View {
     var isAnimating = true
     var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !isAnimating || reduceMotion)) { context in
             let time = isAnimating && !reduceMotion ? context.date.timeIntervalSinceReferenceDate : 0
@@ -99,12 +149,15 @@ struct FlowerView: View {
                     }
                     ForEach(0..<8, id: \.self) { index in
                         Ellipse()
-                            .fill(LinearGradient(colors: [index % 2 == 0 ? Palette.accent.opacity(0.40) : Palette.mint.opacity(0.9), Color.white.opacity(0.18)], startPoint: .top, endPoint: .bottom))
+                            .fill(LinearGradient(colors: [
+                                index % 2 == 0 ? Palette.accent.opacity(colorScheme == .dark ? 0.72 : 0.40) : Palette.mint.opacity(0.9),
+                                Color.white.opacity(colorScheme == .dark ? 0.10 : 0.18)
+                            ], startPoint: .top, endPoint: .bottom))
                             .overlay(Ellipse().stroke(Color.white.opacity(0.7), lineWidth: 0.7))
                             .frame(width: side * 0.265, height: side * 0.53)
                             .offset(y: -side * (0.14 + breath * 0.008))
                             .rotationEffect(.degrees(Double(index) * 45 + breath * 3))
-                            .blendMode(.multiply)
+                            .blendMode(colorScheme == .dark ? .screen : .multiply)
                     }
                     Circle().fill(Color.white.opacity(0.82)).frame(width: side * 0.12, height: side * 0.12)
                     Circle().fill(Palette.accent.opacity(0.5)).frame(width: side * 0.027, height: side * 0.027)

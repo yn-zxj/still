@@ -47,7 +47,6 @@ struct DashboardView: View {
         .foregroundStyle(Palette.ink).tint(Palette.accent)
         .frame(minWidth: 1020, minHeight: 720)
         .background(Palette.sidebar)
-        .environment(\.colorScheme, .light)
         .transaction { if !model.settings.motionEnabled { $0.disablesAnimations = true } }
         .ignoresSafeArea()
     }
@@ -87,7 +86,7 @@ struct DashboardView: View {
             }
             .foregroundStyle(model.page == page ? Palette.accentDark : Palette.secondary)
             .padding(.horizontal, 15).padding(.vertical, 14)
-            .background(model.page == page ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 12))
+            .background(model.page == page ? Palette.surface : Color.clear, in: RoundedRectangle(cornerRadius: 12))
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }.buttonStyle(.plain).padding(.horizontal, 14).padding(.bottom, 5)
     }
@@ -162,8 +161,8 @@ struct TodayView: View {
                 .frame(width: 190, height: 214).padding(.trailing, 30).padding(.vertical, 15)
         }
         .frame(maxWidth: .infinity)
-        .background(LinearGradient(colors: [Color(hex: 0xF0EDFB), Color(hex: 0xF2F2FA), Color(hex: 0xE9F1F0)], startPoint: .leading, endPoint: .trailing), in: RoundedRectangle(cornerRadius: 25))
-        .overlay(RoundedRectangle(cornerRadius: 25).stroke(Color.white.opacity(0.8), lineWidth: 1))
+        .background(LinearGradient(colors: [Palette.heroStart, Palette.heroMiddle, Palette.heroEnd], startPoint: .leading, endPoint: .trailing), in: RoundedRectangle(cornerRadius: 25))
+        .overlay(RoundedRectangle(cornerRadius: 25).stroke(Palette.line.opacity(0.8), lineWidth: 1))
     }
 
     private func stat(icon: String, title: String, seconds: Double? = nil, count: Int? = nil, tint: Color) -> some View {
@@ -229,7 +228,7 @@ struct DayTimeline: View {
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 6).fill(Palette.background)
                     ForEach(0..<24, id: \.self) { hour in
-                        Rectangle().fill(Color.white).frame(width: 2).offset(x: geo.size.width * Double(hour) / 24)
+                        Rectangle().fill(Palette.surface.opacity(0.9)).frame(width: 2).offset(x: geo.size.width * Double(hour) / 24)
                     }
                     ForEach(segments.filter { $0.seconds(in: interval) > 0 }) { segment in
                         let start = max(segment.startedAt, interval.start)

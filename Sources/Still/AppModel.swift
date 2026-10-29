@@ -28,6 +28,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "settings.v1") }
             if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
             if !settings.remindersEnabled || oldValue.reminderStyle != settings.reminderStyle { clearDueNotification() }
+            if oldValue.appearanceTheme != settings.appearanceTheme { applyAppearance?() }
             refreshMenu?()
             save()
         }
@@ -64,6 +65,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     var hideAllReminders: (() -> Void)?
     var hideReminder: (() -> Void)?
     var refreshMenu: (() -> Void)?
+    var applyAppearance: (() -> Void)?
 
     override init() {
         isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || (Bundle.main.bundleIdentifier == "local.still.preview" || Bundle.main.bundleIdentifier?.hasPrefix("local.still.preview.") == true)

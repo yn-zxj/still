@@ -42,7 +42,7 @@ struct RestView: View {
                 HStack(spacing: 7) { LineIcon(systemName: "leaf", size: 15); Text(presentation == .preview ? "提醒预览" : "息间") }
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
                 Spacer()
-                Button(action: close) { LineIcon(systemName: "x", size: 13).foregroundStyle(Palette.secondary).frame(width: 28, height: 28).background(Color.white.opacity(0.7), in: Circle()) }
+                Button(action: close) { LineIcon(systemName: "x", size: 13).foregroundStyle(Palette.secondary).frame(width: 28, height: 28).background(Palette.surface.opacity(0.78), in: Circle()) }
                     .buttonStyle(.plain).accessibilityLabel(presentation == .resting ? "收起休息窗口" : "关闭休息窗口")
             }.padding(.horizontal, 25).padding(.top, 20)
             FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 130, height: 130).padding(.top, 12)
@@ -71,8 +71,8 @@ struct RestView: View {
         }
         .frame(maxWidth: .infinity)
         }
-        .background(LinearGradient(colors: [Color(hex: 0xF6F4FC), Color(hex: 0xEFF5F2)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        .foregroundStyle(Palette.ink).environment(\.colorScheme, .light)
+        .background(LinearGradient(colors: [Palette.restStart, Palette.restEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .foregroundStyle(Palette.ink)
         .onExitCommand(perform: close)
     }
 }
@@ -84,7 +84,7 @@ struct FullScreenRestView: View {
     var chooseCourse: (Course) -> Void = { _ in }
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(hex: 0xEDE9F9), Color(hex: 0xF6F7FB), Color(hex: 0xE3F0EC)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [Palette.restStart, Palette.heroMiddle, Palette.restEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
             VStack(spacing: 0) {
                 HStack {
                     HStack(spacing: 10) {
@@ -122,7 +122,7 @@ struct FullScreenRestView: View {
                 Text("Esc 退出全屏").font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.bottom, 25)
             }
         }
-        .foregroundStyle(Palette.ink).tint(Palette.accent).environment(\.colorScheme, .light).ignoresSafeArea()
+        .foregroundStyle(Palette.ink).tint(Palette.accent).ignoresSafeArea()
         .onExitCommand(perform: close)
     }
 }
@@ -198,14 +198,13 @@ struct MenuPanelView: View {
         .frame(width: 468)
         .background(
             LinearGradient(
-                colors: [Palette.background, Color(hex: 0xF3F4FA)],
+                colors: [Palette.background, Palette.panelEnd],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         )
         .foregroundStyle(Palette.ink)
         .tint(Palette.accent)
-        .environment(\.colorScheme, .light)
     }
 }
 
@@ -378,7 +377,7 @@ private struct MenuUsageChart: View {
                         if let latestIndex, revealState.revealed {
                             Circle()
                                 .fill(Palette.accent)
-                                .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                                .overlay(Circle().stroke(Palette.surface, lineWidth: 1.5))
                                 .frame(width: 7, height: 7)
                                 .shadow(color: Palette.accent.opacity(0.28), radius: 3)
                                 .offset(

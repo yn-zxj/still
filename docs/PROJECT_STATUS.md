@@ -28,7 +28,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 | 统计 | 今日、7/28 天、使用分布、最近休息、CSV 导出 |
 | 提醒 | 全屏、迷你窗、系统通知；独立预览；延后、跳过、提前结束；暂停提醒与暂停统计分开 |
 | 疲劳 | 0–100% 计时估算；工作增加、休息降低；并非医学测量 |
-| UI | 雾紫/薄荷浅色、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果 |
+| UI | 雾紫/薄荷双主题、浅色/深色/跟随系统、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果 |
 | 持久化 | `~/Library/Application Support/Still/usage.sqlite`；UserDefaults `local.still.app` |
 | 生命周期 | 菜单栏常驻、关闭窗口继续统计、单实例保护、可选登录启动 |
 | 课程 | 15门课程已安装本机目录；原始封面网格→训练页，左侧动作、右侧按素材比例播放，远程图片/视频及本地导入兼容 |
@@ -51,7 +51,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证、Intel 构建或公开版本发布。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 61 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。流水线产物为 ad-hoc 签名；Developer ID 签名、公证和发布权限仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 62 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。流水线产物为 ad-hoc 签名；Developer ID 签名、公证和发布权限仍未配置。
 
 ## 验证记录
 
@@ -188,6 +188,14 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 本机使用 Command Line Tools 完成 61 项自动测试、Release 构建、临时签名与 ZIP/校验和/清单打包演练。当前构建仍为 arm64，产物使用 ad-hoc 签名；Developer ID、公证和 Intel/Universal 分发尚未验证。
 - 新增 `.github/workflows/macos-build.yml`：在 `main`、`v*`、Pull Request 和手动触发时测试、构建、校验 Bundle 与签名，并上传 14 天保留期的版本化 ZIP、SHA-256 和 JSON 清单。
 - GitHub 托管 runner 首次执行 run `40877899871` 全部通过。已重新下载 artifact `Still-macOS-1`，SHA-256 校验、ZIP 完整性、`0.3.3 (6)`、Commit `1bd9883`、arm64 架构及 ad-hoc 签名均核对通过；runner 为 `macos15-20260907.0337.1`。
+
+### 0.3.3 外观主题与控件统一
+
+- 偏好设置新增“浅色 / 深色 / 跟随系统”，设置随现有 `settings.v1` 持久化；历史设置没有该字段时默认浅色，保持升级前的视觉与可读性。
+- 主窗口、状态栏快捷面板、迷你/全屏提醒、课程页和动作缩略图改用动态色板。应用会同步更新已打开的提醒窗口；选择“跟随系统”后由 macOS 外观变化驱动。
+- 修复浅色快捷面板仍显示深色原生箭头：`NSPopover` 现在与主窗口使用一致的 `NSAppearance`，跟随系统时则允许原生外观同步变化。
+- 设置页用自绘圆角三段控件替代系统分段框；“允许通知”和“暂停统计”统一为 36pt 高、相同水平留白和描边的按钮，避免暂停统计单独过大。深色主题同步调整呼吸花混合模式，避免小图标发黑。
+- 62 项自动测试通过（43 核心/设置迁移，19 图片/视频/诊断/播放器表面），Release 构建和临时签名验证通过；浅色、深色、跟随系统均在普通 `local.still.app` 中实际切换验收，最终恢复浅色。
 
 #### 资源加载失败排查与恢复
 

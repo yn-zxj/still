@@ -170,6 +170,18 @@ struct PreferencesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 25) {
             SectionHeading(title: "偏好设置")
+            HStack(spacing: 15) {
+                LineIcon(systemName: "monitor").frame(width: 25).foregroundStyle(Palette.accent)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("外观主题").font(.system(size: 14, weight: .medium))
+                    Text("主窗口、快捷面板和休息提醒会立即切换。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondary)
+                }
+                Spacer(minLength: 20)
+                ThemeSelector(selection: $model.settings.appearanceTheme)
+                    .frame(width: 280)
+            }.card(padding: 25)
             VStack(spacing: 22) {
                 toggleRow("休息提醒", "暂停提醒后，仍然记录使用时间。", isOn: $model.settings.remindersEnabled, icon: "bell")
                 Divider().overlay(Palette.line)
@@ -199,7 +211,8 @@ struct PreferencesView: View {
                     if model.notificationAuthorized {
                         Text("已允许").font(.system(size: 13)).foregroundStyle(Palette.green)
                     } else {
-                        Button(model.notificationDenied ? "打开系统设置" : "允许通知") { model.enableNotifications() }.buttonStyle(.bordered)
+                        Button(model.notificationDenied ? "打开系统设置" : "允许通知") { model.enableNotifications() }
+                            .buttonStyle(SettingsButtonStyle())
                     }
 
                 }
@@ -211,7 +224,8 @@ struct PreferencesView: View {
                     Text("暂停统计会保留历史与本轮进度，恢复后继续。").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Button(model.engine.trackingPaused ? "恢复统计" : "暂停统计") { model.toggleTracking() }.buttonStyle(SoftButtonStyle())
+                Button(model.engine.trackingPaused ? "恢复统计" : "暂停统计") { model.toggleTracking() }
+                    .buttonStyle(SettingsButtonStyle())
             }.card(padding: 22)
             Text("息间 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1")")
                 .font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 5)
@@ -228,5 +242,38 @@ struct PreferencesView: View {
             Spacer()
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
         }
+    }
+}
+
+private struct ThemeSelector: View {
+    @Binding var selection: AppearanceTheme
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(AppearanceTheme.allCases) { theme in
+                Button {
+                    selection = theme
+                } label: {
+                    Text(theme.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(selection == theme ? Color.white : Palette.ink)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .background(
+                            selection == theme ? Palette.accent : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(theme.title)
+                .accessibilityAddTraits(selection == theme ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Palette.line.opacity(0.9), lineWidth: 1)
+        )
     }
 }

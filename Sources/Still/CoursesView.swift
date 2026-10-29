@@ -128,13 +128,13 @@ struct CoursesView: View {
                             }
                             HStack(alignment: .center, spacing: 12) {
                                 CourseActionThumbnail(action: action, localImage: library.thumbnail(for: action), remoteImages: library.remoteThumbnails)
-                                    .frame(width: 66, height: 58).background(Color.white, in: RoundedRectangle(cornerRadius: 10)).clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .frame(width: 66, height: 58).background(Palette.surface, in: RoundedRectangle(cornerRadius: 10)).clipShape(RoundedRectangle(cornerRadius: 10))
                                 VStack(alignment: .leading, spacing: 7) {
                                     Text(action.name).font(.system(size: 14, weight: .medium)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                                     Text(action.quantityText ?? "时长待补齐").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 14))
+                                .background(Palette.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 14))
                                 .accessibilityElement(children: .contain)
                                 .accessibilityLabel("第 \(action.order) 个动作，\(action.name)，\(action.quantityText ?? "时长待补齐")，\(action.phase)")
                         }
@@ -165,7 +165,7 @@ struct CoursesView: View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 ZStack {
-                    Color.white
+                    Color.black
                     if library.mediaURL(for: course) != nil {
                         if player.loading {
                             CourseVideoPoster(resource: course.coverURL, remoteImages: library.remoteThumbnails)
@@ -178,7 +178,7 @@ struct CoursesView: View {
                             VStack(spacing: 10) {
                                 ProgressView()
                                 Text(player.buffering ? "正在缓冲…" : "正在加载视频…").font(.system(size: 13))
-                            }.foregroundStyle(Palette.ink).padding(18).background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 14))
+                            }.foregroundStyle(Palette.ink).padding(18).background(Palette.surface.opacity(0.95), in: RoundedRectangle(cornerRadius: 14))
                         }
                     } else {
                         VStack(spacing: 12) {
@@ -322,7 +322,7 @@ private struct CourseCoverCard: View {
                         Spacer()
                         HStack(spacing: 5) { Text("查看课程"); LineIcon(systemName: "play", size: 12) }.font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
                     }
-                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(Color.white)
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface)
             }.clipShape(RoundedRectangle(cornerRadius: 20))
                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(state.hovering ? Palette.accent.opacity(0.4) : Palette.line, lineWidth: 1))
                 .shadow(color: Palette.accent.opacity(state.hovering ? 0.12 : 0.025), radius: state.hovering ? 14 : 5, y: state.hovering ? 5 : 2)
