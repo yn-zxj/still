@@ -7,32 +7,39 @@ struct DashboardView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 185)
-            ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 25) {
-                    switch model.page {
-                    case .courses: CoursesView(model: model, library: model.library, player: model.coursePlayer, scrollToTop: { proxy.scrollTo("dashboard-top", anchor: .top) })
-                    case .today: TodayView(model: model)
-                    case .history: HistoryView(model: model)
-                    case .rules: RulesView(model: model)
-                    case .settings: PreferencesView(model: model)
-                    }
-                    if let error = model.storageError {
-                        LineLabel(error + "。当前会话可继续计时，请先导出记录并检查磁盘。", systemImage: "exclamationmark.triangle")
-                            .font(.system(size: 13)).foregroundStyle(Color.orange).padding(12)
-                            .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    if let error = model.reminderError, model.page != .rules {
-                        LineLabel(error, systemImage: "triangle-alert").font(.system(size: 13)).foregroundStyle(Color.orange)
+            Group {
+                if model.page == .courses {
+                    VStack(spacing: 0) {
+                        CoursesView(model: model, library: model.library, player: model.coursePlayer)
+                        if let error = model.storageError {
+                            Text(error).font(.system(size: 13)).foregroundStyle(.orange).padding(12)
+                        }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 25) {
+                            switch model.page {
+                            case .courses: EmptyView()
+                            case .today: TodayView(model: model)
+                            case .history: HistoryView(model: model)
+                            case .rules: RulesView(model: model)
+                            case .settings: PreferencesView(model: model)
+                            }
+                            if let error = model.storageError {
+                                LineLabel(error + "。当前会话可继续计时，请先导出记录并检查磁盘。", systemImage: "exclamationmark.triangle")
+                                    .font(.system(size: 13)).foregroundStyle(Color.orange).padding(12)
+                                    .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                            }
+                            if let error = model.reminderError, model.page != .rules {
+                                LineLabel(error, systemImage: "triangle-alert").font(.system(size: 13)).foregroundStyle(Color.orange)
+                            }
+                        }
+                        .padding(.horizontal, 32).padding(.top, 38).padding(.bottom, 24)
+                        .frame(maxWidth: 1040, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(.horizontal, 32).padding(.top, 38).padding(.bottom, 24)
-                .frame(maxWidth: 1040, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .id("dashboard-top")
-            }
-            .background(Palette.background)
-            }
+            }.background(Palette.background)
         }
         .foregroundStyle(Palette.ink).tint(Palette.accent)
         .frame(minWidth: 1020, minHeight: 720)

@@ -6,22 +6,28 @@ struct CoursesView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var library: CourseLibrary
     @ObservedObject var player: CoursePlayer
-    var scrollToTop: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var selected: Course? { library.courses.first { $0.id == library.selectedID } }
     private var transition: Animation? { reduceMotion || !model.settings.motionEnabled ? nil : .easeOut(duration: 0.2) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 26) {
-            if let course = selected {
-                training(course)
-            } else {
-                catalog
-            }
-            if let error = library.error { Text(error).font(.system(size: 14)).foregroundStyle(.orange) }
+        VStack(spacing: 0) {
+            Group {
+                if let course = selected {
+                    training(course).padding(.top, 38)
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        catalog.padding(.top, 38).padding(.bottom, 24)
+                    }
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let error = library.error { Text(error).font(.system(size: 14)).foregroundStyle(.orange).padding(.vertical, 12) }
         }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: 1040, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { loadSelection() }
-        .onChange(of: library.selectedID) { _ in loadSelection(); scrollToTop() }
+        .onChange(of: library.selectedID) { _ in loadSelection() }
         .onChange(of: library.revision) { _ in loadSelection(force: true) }
     }
 
@@ -30,8 +36,7 @@ struct CoursesView: View {
             HStack(alignment: .top) {
                 SectionHeading(title: "休息课程", subtitle: "选一段练习，让身体松下来。")
                 Spacer()
-                Button { library.chooseFolder() } label: { LineLabel(library.importing ? "正在导入…" : "导入课程", systemImage: "upload") }
-                    .buttonStyle(SoftButtonStyle()).disabled(library.importing || player.active)
+                CourseCacheControls(cache: library.videoCache, player: player)
             }
             if player.active, let current = library.courses.first(where: { $0.id == player.courseID }) {
                 Button { open(current) } label: {
@@ -46,10 +51,9 @@ struct CoursesView: View {
             if library.courses.isEmpty {
                 VStack(spacing: 18) {
                     FlowerView(isAnimating: false).frame(width: 140, height: 140)
-                    Text("放进你的第一门课程").font(.system(size: 22, weight: .medium))
-                    Text("选择课程文件夹，即可浏览动作说明和播放视频。")
+                    Text("暂无课程").font(.system(size: 22, weight: .medium))
+                    Text("课程目录准备好后，会显示在这里。")
                         .font(.system(size: 15)).foregroundStyle(Palette.secondary)
-                    Button("选择文件夹") { library.chooseFolder() }.buttonStyle(SoftButtonStyle(prominent: true))
                 }.frame(maxWidth: .infinity).padding(.vertical, 55).card()
             } else {
                 Text("全部课程 · \(library.courses.count)").font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.secondary)
@@ -79,7 +83,8 @@ struct CoursesView: View {
                 Spacer(minLength: 0)
             }
             HStack(alignment: .top, spacing: 24) {
-                actionRail(course).frame(width: 222)
+                if !course.actions.isEmpty { actionRail(course).frame(width: 222).padding(.bottom, 24) }
+                ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 26) {
                     video(course)
                     VStack(alignment: .leading, spacing: 22) {
@@ -98,9 +103,10 @@ struct CoursesView: View {
                             }.padding(.top, 16)
                         } label: { Text("适用说明与来源").font(.system(size: 15, weight: .medium)) }
                     }.card(padding: 24)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 24)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity).id(course.id)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func actionRail(_ course: Course) -> some View {
@@ -133,7 +139,7 @@ struct CoursesView: View {
                                 .accessibilityLabel("第 \(action.order) 个动作，\(action.name)，\(action.quantityText ?? "时长待补齐")，\(action.phase)")
                         }
                     }.padding(.trailing, 4)
-                }.frame(height: 570)
+                }.frame(maxHeight: .infinity)
                 if !course.actionsComplete { Text("动作信息待补齐").font(.system(size: 12)).foregroundStyle(Palette.secondary) }
             }
         }
@@ -161,13 +167,18 @@ struct CoursesView: View {
                 ZStack {
                     Color.white
                     if library.mediaURL(for: course) != nil {
-                        CourseVideoSurface(player: player.player, aspectRatio: player.videoAspectRatio)
-                            .frame(width: geometry.size.width, height: geometry.size.height)
+                        if player.loading {
+                            CourseVideoPoster(resource: course.coverURL, remoteImages: library.remoteThumbnails)
+                                .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                        } else {
+                            CourseVideoSurface(player: player.player, aspectRatio: player.videoAspectRatio)
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                        }
                         if player.loading || player.buffering {
                             VStack(spacing: 10) {
                                 ProgressView()
                                 Text(player.buffering ? "正在缓冲…" : "正在加载视频…").font(.system(size: 13))
-                            }.padding(18).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                            }.foregroundStyle(Palette.ink).padding(18).background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 14))
                         }
                     } else {
                         VStack(spacing: 12) {
@@ -190,6 +201,19 @@ struct CoursesView: View {
                         Text(player.finished ? "本次跟练已完成" : "\(clockText(player.position)) / \(clockText(player.duration))")
                             .font(.system(size: 13, design: .monospaced)).foregroundStyle(Palette.secondary)
                     }
+                    HStack(spacing: 10) {
+                        if player.videoAvailableOffline {
+                            Text(player.usingCachedVideo ? "本地缓存 · 离线播放" : "已缓存 · 下次可离线播放").foregroundStyle(Palette.green)
+                        } else if player.caching {
+                            if let progress = player.downloadProgress { ProgressView(value: progress).tint(Palette.accent).frame(width: 70) }
+                            Text(player.downloadProgress.map { "在线播放 · 正在缓存 \(Int($0 * 100))%" } ?? "在线播放 · 后台缓存中")
+                                .foregroundStyle(Palette.secondary)
+                        } else if let error = player.cacheError {
+                            Text(error).foregroundStyle(Palette.secondary)
+                            Button("重试缓存") { player.retryCaching(course) }.buttonStyle(.plain).foregroundStyle(Palette.accentDark)
+                        }
+                        Spacer(minLength: 0)
+                    }.font(.system(size: 12))
                     if let error = player.error {
                         HStack { Text(error).font(.system(size: 13)); Button("重试") { player.load(course, url: library.mediaURL(for: course)) } }.foregroundStyle(.orange)
                     }
@@ -207,6 +231,50 @@ struct CoursesView: View {
         } else if let fallback { Text(fallback).font(.system(size: 14)).foregroundStyle(Palette.secondary) }
     }
 }
+
+private struct CourseVideoPoster: View {
+    let resource: HTTPSResourceURL?
+    let remoteImages: RemoteCourseImages
+    @StateObject private var state = CourseImageState()
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Palette.lavender
+                if let image = state.image {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                }
+                Color.white.opacity(0.2)
+            }
+        }.task(id: resource) {
+            state.image = nil
+            guard let resource else { return }
+            let image = await remoteImages.image(for: resource)
+            guard !Task.isCancelled else { return }
+            state.image = image
+        }
+    }
+}
+
+private struct CourseCacheControls: View {
+    @ObservedObject var cache: CourseVideoCache
+    @ObservedObject var player: CoursePlayer
+    @StateObject private var state = CourseCacheControlState()
+    var body: some View {
+        Menu {
+            Text("首次缓存，后续离线播放")
+            Button("清理视频缓存") {
+                do { player.unload(); try cache.clear(); state.error = nil }
+                catch { state.error = "缓存清理失败：" + error.localizedDescription }
+            }.disabled(cache.byteCount == 0 || player.active || player.loading)
+            if let error = state.error { Text(error) }
+        } label: {
+            Text("视频缓存 · " + (cache.byteCount == 0 ? "0 MB" : ByteCountFormatter.string(fromByteCount: cache.byteCount, countStyle: .file)))
+                .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+        }.menuStyle(.borderlessButton).fixedSize()
+    }
+}
+private final class CourseCacheControlState: ObservableObject { @Published var error: String? }
 
 private final class CourseImageState: ObservableObject {
     @Published var image: NSImage?

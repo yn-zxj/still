@@ -60,6 +60,25 @@ struct RemoteResourceTests {
         #expect(await images.image(for: resource) != nil)
         #expect(ImageProtocol.count == 2)
     }
+    @Test func imagesPersistAcrossLoaderInstancesAndInvalidDiskDataIsReplaced() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ImageProtocol.self]
+        ImageProtocol.count = 0; ImageProtocol.payload = try imageData(); ImageProtocol.status = 200; ImageProtocol.contentLength = nil
+        let resource = try HTTPSResourceURL("https://example.test/persistent-cover.png")
+        let first = RemoteCourseImages(session: URLSession(configuration: config), diskRoot: root)
+        #expect(await first.image(for: resource) != nil)
+        ImageProtocol.status = 503
+        let offline = RemoteCourseImages(session: URLSession(configuration: config), diskRoot: root)
+        #expect(await offline.image(for: resource) != nil)
+        #expect(ImageProtocol.count == 1)
+        let file = try #require(FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).first)
+        try Data("bad stored image".utf8).write(to: file)
+        ImageProtocol.status = 200
+        let repaired = RemoteCourseImages(session: URLSession(configuration: config), diskRoot: root)
+        #expect(await repaired.image(for: resource) != nil)
+        #expect(ImageProtocol.count == 2)
+    }
     private func catalog(media: [String: String], thumbnail: String? = nil, thumbnailURL: String? = nil) throws -> Data {
         var action: [String: Any] = ["order": 1, "phase": "测试", "name": "自制动作"]
         action["thumbnail"] = thumbnail; action["thumbnailURL"] = thumbnailURL

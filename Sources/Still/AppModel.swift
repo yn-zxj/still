@@ -42,7 +42,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     @Published var exportMessage: String?
     @Published var appIsActive = true
     let library: CourseLibrary
-    let coursePlayer = CoursePlayer()
+    let coursePlayer: CoursePlayer
     let isUITest: Bool
     private let defaults: UserDefaults
     private let monitor: SystemActivityMonitor
@@ -67,6 +67,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             index + 1 < arguments.count ? URL(fileURLWithPath: arguments[index + 1]) : nil
         } : nil
         library = CourseLibrary(isUITest: isUITest, rootOverride: testLibrary)
+        coursePlayer = CoursePlayer(cache: library.videoCache)
         defaults = isUITest ? UserDefaults(suiteName: "local.still.ui-validation")! : .standard
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,

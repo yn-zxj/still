@@ -1,15 +1,18 @@
 import AppKit
 import ImageIO
+import CryptoKit
 import StillCore
 
-/// Per-library memory cache. No account cookies, credentials, or course API requests.
+/// Memory and optional persistent image cache. No account cookies or course API requests.
 @MainActor
 final class RemoteCourseImages {
     private let cache = NSCache<NSURL, NSImage>()
     private var pending: [HTTPSResourceURL: Task<Data?, Never>] = [:]
     private let session: URLSession
+    private let diskRoot: URL?
 
-    init(session: URLSession? = nil) {
+    init(session: URLSession? = nil, diskRoot: URL? = nil) {
+        self.diskRoot = diskRoot
         cache.totalCostLimit = 32 * 1024 * 1024
         cache.countLimit = 160
         if let session { self.session = session }
@@ -27,22 +30,36 @@ final class RemoteCourseImages {
 
     func image(for resource: HTTPSResourceURL) async -> NSImage? {
         if let image = cache.object(forKey: resource.url as NSURL) { return image }
+        let filename = SHA256.hash(data: Data(resource.url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+        let diskURL = diskRoot?.appendingPathComponent(filename + ".image")
+        if let diskURL, let data = try? Data(contentsOf: diskURL), let (image, cost) = decode(data) {
+            cache.setObject(image, forKey: resource.url as NSURL, cost: cost)
+            return image
+        }
         let session = session
         let task = pending[resource] ?? Task { try? await Self.fetch(resource, session: session) }
         pending[resource] = task
         let data = await task.value
         pending[resource] = nil
         if let image = cache.object(forKey: resource.url as NSURL) { return image }
-        guard let data, let source = CGImageSourceCreateWithData(data as CFData, nil),
+        guard let data, let (image, cost) = decode(data) else { return nil }
+        if let diskRoot, let diskURL {
+            try? FileManager.default.createDirectory(at: diskRoot, withIntermediateDirectories: true)
+            try? data.write(to: diskURL, options: .atomic)
+        }
+        cache.setObject(image, forKey: resource.url as NSURL, cost: cost)
+        return image
+    }
+    private func decode(_ data: Data) -> (NSImage, Int)? {
+        guard data.count <= 8 * 1024 * 1024,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: 800,
                 kCGImageSourceShouldCacheImmediately: true
               ] as CFDictionary) else { return nil }
-        let image = NSImage(cgImage: cgImage, size: .zero)
-        cache.setObject(image, forKey: resource.url as NSURL, cost: cgImage.width * cgImage.height * 4)
-        return image
+        return (NSImage(cgImage: cgImage, size: .zero), cgImage.width * cgImage.height * 4)
     }
 
     nonisolated private static func fetch(_ resource: HTTPSResourceURL, session: URLSession) async throws -> Data {

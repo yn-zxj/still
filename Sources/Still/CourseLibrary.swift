@@ -14,11 +14,14 @@ final class CourseLibrary: ObservableObject {
     @Published var selectedID: String?
     @Published var showDetails = false
     private var thumbnails: [String: NSImage] = [:]
-    let remoteThumbnails = RemoteCourseImages()
+    let remoteThumbnails: RemoteCourseImages
+    let videoCache: CourseVideoCache
     let root: URL
     init(isUITest: Bool, rootOverride: URL? = nil) {
         root = rootOverride ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(isUITest ? "Still-UIValidation/Courses" : "Still/Courses")
+        remoteThumbnails = RemoteCourseImages(diskRoot: root.deletingLastPathComponent().appendingPathComponent("MediaCache/Images"))
+        videoCache = CourseVideoCache(root: root.deletingLastPathComponent().appendingPathComponent("MediaCache/Videos"))
         reload()
     }
     func reload() {
@@ -39,10 +42,13 @@ final class CourseLibrary: ObservableObject {
         return error.localizedDescription
     }
     func mediaURL(for course: Course) -> URL? {
-        course.media?.playbackURL(in: root) { url in
+        guard let media = course.media else { return nil }
+        let candidate = media.playbackURL(in: root) { url in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && !directory.boolValue
         }
+        if let candidate, !candidate.isFileURL, let cached = videoCache.cachedURL(for: candidate, expectedSHA256: media.sha256) { return cached }
+        return candidate
     }
     func thumbnail(for action: Course.Action) -> NSImage? { action.thumbnail.flatMap { thumbnails[$0] } }
     nonisolated private static func decodeThumbnail(_ url: URL) -> CGImage? {
@@ -124,18 +130,26 @@ final class CoursePlayer: ObservableObject {
     @Published private(set) var active = false
     @Published private(set) var loading = false
     @Published private(set) var buffering = false
+    @Published private(set) var caching = false
+    @Published private(set) var downloadProgress: Double?
+    @Published private(set) var usingCachedVideo = false
+    @Published private(set) var videoAvailableOffline = false
+    @Published private(set) var cacheError: String?
     @Published private(set) var position: Double = 0
     @Published private(set) var duration: Double = 0
     @Published private(set) var videoAspectRatio: CGFloat = 16 / 9
     @Published private(set) var finished = false
     @Published var error: String?
     let player = AVPlayer()
+    let cache: CourseVideoCache?
+    private let assetFactory: (URL) -> AVURLAsset
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var statusObserver: NSKeyValueObservation?
     private var loadID = UUID()
     private var loadTask: Task<Void, Never>?
+    private var cacheTask: Task<Void, Never>?
     private var asset: AVURLAsset?
     private var watchdog: Timer?
     private var loadStarted: TimeInterval = 0
@@ -147,7 +161,8 @@ final class CoursePlayer: ObservableObject {
     var onProgress: ((Double, Bool) -> Void)?
     var onStop: (() -> Void)?
 
-    init() {
+    init(cache: CourseVideoCache? = nil, assetFactory: @escaping (URL) -> AVURLAsset = { AVURLAsset(url: $0) }) {
+        self.cache = cache; self.assetFactory = assetFactory
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.observe(time.seconds) }
         }
@@ -156,19 +171,26 @@ final class CoursePlayer: ObservableObject {
         }
     }
     func load(_ course: Course, url: URL?) {
-        stop(); removeItemObservers(); loadTask?.cancel(); asset?.cancelLoading(); asset = nil
+        stop(); removeItemObservers(); loadTask?.cancel(); cacheTask?.cancel(); asset?.cancelLoading(); asset = nil
         loadID = UUID(); let request = loadID
         courseID = course.id; title = course.title; position = 0; duration = 0; videoAspectRatio = 16 / 9; error = nil; finished = false
+        caching = false; downloadProgress = nil; usingCachedVideo = false; videoAvailableOffline = false; cacheError = nil
         player.replaceCurrentItem(with: nil)
         guard let url else { loading = false; return }
         guard url.isFileURL || (try? HTTPSResourceURL(url.absoluteString)) != nil else {
             loading = false; error = CourseError.unsafeRemoteURL.localizedDescription; return
         }
-        remote = !url.isFileURL; loading = true; loadStarted = ProcessInfo.processInfo.systemUptime
+        var playbackURL = url
+        if !url.isFileURL, let ready = cache?.cachedURL(for: url, expectedSHA256: course.media?.sha256) { playbackURL = ready }
+        usingCachedVideo = cache.map { playbackURL.deletingLastPathComponent().standardizedFileURL.path == $0.root.standardizedFileURL.path } ?? false
+        videoAvailableOffline = usingCachedVideo
+        remote = !playbackURL.isFileURL; loading = true; loadStarted = ProcessInfo.processInfo.systemUptime
+        if remote, cache != nil { startCaching(course, url: url, request: request) }
+        let loadURL = playbackURL
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let asset = AVURLAsset(url: url)
+                let asset = assetFactory(loadURL)
                 self.asset = asset
                 let playable = try await asset.load(.isPlayable)
                 let seconds = try await asset.load(.duration).seconds
@@ -200,6 +222,33 @@ final class CoursePlayer: ObservableObject {
                 self.error = remote ? "视频未能载入，请检查网络或资源地址后重试。" : error.localizedDescription
             }
         }
+    }
+    private func startCaching(_ course: Course, url: URL, request: UUID) {
+        guard let cache else { return }
+        caching = true; downloadProgress = nil; cacheError = nil
+        cacheTask = Task { [weak self] in
+            do {
+                _ = try await cache.file(for: url, expectedSHA256: course.media?.sha256) { [weak self] value in
+                    guard let self, self.loadID == request else { return }
+                    self.downloadProgress = value
+                }
+                guard let self, self.loadID == request, !Task.isCancelled else { return }
+                self.caching = false; self.videoAvailableOffline = true
+            } catch {
+                guard let self, self.loadID == request, !Task.isCancelled else { return }
+                self.caching = false; self.cacheError = "缓存未完成，可继续在线播放。"
+            }
+        }
+    }
+    func retryCaching(_ course: Course) {
+        guard !caching, !videoAvailableOffline, let url = course.media?.url?.url else { return }
+        startCaching(course, url: url, request: loadID)
+    }
+    func unload() {
+        stop(); loadID = UUID(); loadTask?.cancel(); cacheTask?.cancel(); asset?.cancelLoading(); asset = nil
+        removeItemObservers(); player.replaceCurrentItem(with: nil)
+        courseID = nil; loading = false; caching = false; buffering = false; usingCachedVideo = false
+        downloadProgress = nil; position = 0; duration = 0; error = nil; cacheError = nil; videoAvailableOffline = false
     }
     func toggle() {
         guard !loading, error == nil, duration > 0 else { return }
@@ -252,7 +301,7 @@ final class CoursePlayer: ObservableObject {
         endObserver = nil; failureObserver = nil; statusObserver = nil
     }
     func shutdown() {
-        stop(); loadID = UUID(); loadTask?.cancel(); asset?.cancelLoading(); watchdog?.invalidate(); watchdog = nil
+        stop(); loadID = UUID(); loadTask?.cancel(); cacheTask?.cancel(); cache?.cancelAll(); asset?.cancelLoading(); watchdog?.invalidate(); watchdog = nil
         removeItemObservers(); if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
     }
 }
