@@ -113,6 +113,23 @@ struct VideoCacheTests {
         #expect(cache.byteCount == 0)
     }
 
+    @Test func switchingCoursesCancelsOldDownloadWithoutCommittingIt() async throws {
+        let root = base(); defer { try? FileManager.default.removeItem(at: root) }
+        let data = payload()
+        let cache = CourseVideoCache(root: root.appendingPathComponent("cache")) { url, _ in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return (try download(root, data: data), response(url, length: data.count))
+        }
+        let old = Task { try await cache.file(for: source) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let next = URL(string: "https://example.test/next.mp4")!
+        cache.cancelOtherDownloads(keeping: next, expectedSHA256: nil)
+        await #expect(throws: (any Error).self) { try await old.value }
+        #expect(cache.cachedURL(for: source) == nil)
+        _ = try await cache.file(for: next)
+        #expect(cache.cachedURL(for: next) != nil)
+    }
+
     private func course() throws -> Course {
         try Course.decodeCatalog(Data("""
         [{"schemaVersion":1,"id":"cache-test","title":"自制缓存测试","source":{"application":"测试"},"displayDurationMinutes":1,"difficulty":"简单","description":"自制素材","actions":[],"actionsComplete":false,"media":{"url":"https://example.test/course.mp4"}}]
@@ -135,15 +152,17 @@ struct VideoCacheTests {
         var starts = 0
         player.onStart = { _ in starts += 1 }
         player.load(try course(), url: source)
-        for _ in 0..<100 { if !player.loading && release != nil { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        for _ in 0..<100 { if !player.loading { break }; try await Task.sleep(nanoseconds: 20_000_000) }
         #expect(player.error == nil)
         #expect(playbackSource == source)
-        #expect(player.caching)
-        #expect(player.downloadProgress == 0.5)
+        #expect(!player.caching) // Merely browsing a course must not download a full video.
         #expect(!player.videoAvailableOffline)
         player.toggle()
         #expect(player.active)
         #expect(starts == 1)
+        for _ in 0..<100 { if release != nil { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(player.caching)
+        #expect(player.downloadProgress == 0.5)
         player.pause()
         release?.resume()
         for _ in 0..<100 { if !player.caching { break }; try await Task.sleep(nanoseconds: 20_000_000) }
@@ -161,12 +180,36 @@ struct VideoCacheTests {
         let cache = CourseVideoCache(root: root.appendingPathComponent("cache")) { _, _ in throw URLError(.notConnectedToInternet) }
         let player = CoursePlayer(cache: cache) { _ in AVURLAsset(url: fixture) }; defer { player.shutdown() }
         player.load(try course(), url: source)
-        for _ in 0..<100 { if !player.loading && player.cacheError != nil { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        for _ in 0..<100 { if !player.loading { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        #expect(player.error == nil)
+        player.toggle()
+        for _ in 0..<100 { if player.cacheError != nil { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         #expect(player.error == nil)
         #expect(player.cacheError != nil)
         #expect(!player.videoAvailableOffline)
-        player.toggle()
         #expect(player.playing)
+        player.stop()
+    }
+
+    @Test func failedStreamCanRecoverThroughCompleteCache() async throws {
+        let root = base(); defer { try? FileManager.default.removeItem(at: root) }
+        let data = payload()
+        let cache = CourseVideoCache(root: root.appendingPathComponent("cache")) { url, _ in
+            (try download(root, data: data), response(url, length: data.count))
+        }
+        let player = CoursePlayer(cache: cache) { url in
+            AVURLAsset(url: url.isFileURL ? url : root.appendingPathComponent("missing.mp4"))
+        }
+        defer { player.shutdown() }
+        let course = try course()
+        player.load(course, url: source)
+        for _ in 0..<100 { if !player.loading { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(player.error != nil)
+        player.playFromCache(course)
+        for _ in 0..<200 { if player.playing { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(player.error == nil)
+        #expect(player.playing)
+        #expect(player.usingCachedVideo)
         player.stop()
     }
 

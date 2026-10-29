@@ -20,17 +20,18 @@ final class CourseVideoCache: ObservableObject {
     let root: URL
     private let session: URLSession
     private let downloader: Downloader?
+    private let diagnostics: ResourceDiagnostics?
     private var pending: [String: Task<URL, Error>] = [:]
     private var generation = UUID()
     private var observers: [String: [UUID: Progress]] = [:]
     private var fractions: [String: Double] = [:]
 
-    init(root: URL, downloader: Downloader? = nil) {
-        self.root = root; self.downloader = downloader
+    init(root: URL, diagnostics: ResourceDiagnostics? = nil, downloader: Downloader? = nil) {
+        self.root = root; self.downloader = downloader; self.diagnostics = diagnostics
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false; config.httpCookieStorage = nil; config.urlCredentialStorage = nil
         config.timeoutIntervalForRequest = 60; config.timeoutIntervalForResource = 3600
-        config.httpMaximumConnectionsPerHost = 2
+        config.httpMaximumConnectionsPerHost = 1
         session = URLSession(configuration: config)
         refreshSize()
     }
@@ -77,8 +78,9 @@ final class CourseVideoCache: ObservableObject {
             }
             defer { try? fm.removeItem(at: temporary) }
             try Task.checkCancellation()
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  let finalURL = response.url, (try? HTTPSResourceURL(finalURL.absoluteString)) != nil else { throw VideoCacheError.invalidResponse }
+            guard let http = response as? HTTPURLResponse else { throw ResourceRequestFailure.invalidResponse }
+            guard http.statusCode == 200 else { throw ResourceRequestFailure.http(http.statusCode) }
+            guard let finalURL = response.url, (try? HTTPSResourceURL(finalURL.absoluteString)) != nil else { throw VideoCacheError.invalidResponse }
             try fm.moveItem(at: temporary, to: stage)
             let expectedBytes = response.expectedContentLength
             let entry = try await Task.detached(priority: .utility) {
@@ -109,7 +111,15 @@ final class CourseVideoCache: ObservableObject {
         }
         pending[key] = task
         defer { if currentGeneration == generation { pending[key] = nil; fractions[key] = nil } }
-        return try await task.value
+        do { return try await task.value }
+        catch {
+            if !(error is CancellationError) { diagnostics?.record(kind: "video-cache", url: url, error: error) }
+            throw error
+        }
+    }
+    func cancelOtherDownloads(keeping url: URL, expectedSHA256: String?) {
+        let keep = key(url, expectedSHA256)
+        for (key, task) in pending where key != keep { task.cancel() }
     }
     func cancelAll() {
         generation = UUID(); pending.values.forEach { $0.cancel() }; pending = [:]; observers = [:]; fractions = [:]

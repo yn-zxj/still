@@ -16,12 +16,14 @@ final class CourseLibrary: ObservableObject {
     private var thumbnails: [String: NSImage] = [:]
     let remoteThumbnails: RemoteCourseImages
     let videoCache: CourseVideoCache
+    let diagnostics: ResourceDiagnostics
     let root: URL
     init(isUITest: Bool, rootOverride: URL? = nil) {
         root = rootOverride ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(isUITest ? "Still-UIValidation/Courses" : "Still/Courses")
-        remoteThumbnails = RemoteCourseImages(diskRoot: root.deletingLastPathComponent().appendingPathComponent("MediaCache/Images"))
-        videoCache = CourseVideoCache(root: root.deletingLastPathComponent().appendingPathComponent("MediaCache/Videos"))
+        diagnostics = ResourceDiagnostics(root: root.deletingLastPathComponent().appendingPathComponent("Diagnostics"))
+        remoteThumbnails = RemoteCourseImages(diskRoot: root.deletingLastPathComponent().appendingPathComponent("MediaCache/Images"), diagnostics: diagnostics)
+        videoCache = CourseVideoCache(root: root.deletingLastPathComponent().appendingPathComponent("MediaCache/Videos"), diagnostics: diagnostics)
         reload()
     }
     func reload() {
@@ -143,6 +145,9 @@ final class CoursePlayer: ObservableObject {
     let player = AVPlayer()
     let cache: CourseVideoCache?
     private let assetFactory: (URL) -> AVURLAsset
+    private let diagnostics: ResourceDiagnostics?
+    private var loadedCourse: Course?
+    private var remoteURL: URL?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
@@ -161,8 +166,8 @@ final class CoursePlayer: ObservableObject {
     var onProgress: ((Double, Bool) -> Void)?
     var onStop: (() -> Void)?
 
-    init(cache: CourseVideoCache? = nil, assetFactory: @escaping (URL) -> AVURLAsset = { AVURLAsset(url: $0) }) {
-        self.cache = cache; self.assetFactory = assetFactory
+    init(cache: CourseVideoCache? = nil, diagnostics: ResourceDiagnostics? = nil, assetFactory: @escaping (URL) -> AVURLAsset = { AVURLAsset(url: $0) }) {
+        self.cache = cache; self.assetFactory = assetFactory; self.diagnostics = diagnostics
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.observe(time.seconds) }
         }
@@ -170,7 +175,7 @@ final class CoursePlayer: ObservableObject {
             MainActor.assumeIsolated { self?.checkLoading() }
         }
     }
-    func load(_ course: Course, url: URL?) {
+    func load(_ course: Course, url: URL?, autoStart: Bool = false) {
         stop(); removeItemObservers(); loadTask?.cancel(); cacheTask?.cancel(); asset?.cancelLoading(); asset = nil
         loadID = UUID(); let request = loadID
         courseID = course.id; title = course.title; position = 0; duration = 0; videoAspectRatio = 16 / 9; error = nil; finished = false
@@ -180,12 +185,13 @@ final class CoursePlayer: ObservableObject {
         guard url.isFileURL || (try? HTTPSResourceURL(url.absoluteString)) != nil else {
             loading = false; error = CourseError.unsafeRemoteURL.localizedDescription; return
         }
+        if let source = course.media?.url?.url { cache?.cancelOtherDownloads(keeping: source, expectedSHA256: course.media?.sha256) }
         var playbackURL = url
         if !url.isFileURL, let ready = cache?.cachedURL(for: url, expectedSHA256: course.media?.sha256) { playbackURL = ready }
         usingCachedVideo = cache.map { playbackURL.deletingLastPathComponent().standardizedFileURL.path == $0.root.standardizedFileURL.path } ?? false
         videoAvailableOffline = usingCachedVideo
         remote = !playbackURL.isFileURL; loading = true; loadStarted = ProcessInfo.processInfo.systemUptime
-        if remote, cache != nil { startCaching(course, url: url, request: request) }
+        loadedCourse = course; remoteURL = remote ? url : nil
         let loadURL = playbackURL
         loadTask = Task { [weak self] in
             guard let self else { return }
@@ -217,28 +223,36 @@ final class CoursePlayer: ObservableObject {
                     if item.status == .failed { Task { @MainActor in if self?.loadID == request { self?.fail() } } }
                 }
                 loading = false
+                if autoStart { toggle() }
             } catch {
                 guard request == loadID else { return }; loading = false
-                self.error = remote ? "视频未能载入，请检查网络或资源地址后重试。" : error.localizedDescription
+                diagnostics?.record(kind: "video-load", url: course.media?.url?.url ?? url, error: error)
+                self.error = "视频未能载入：" + ResourceDiagnostics.message(error)
             }
         }
     }
-    private func startCaching(_ course: Course, url: URL, request: UUID) {
+    private func startCaching(_ course: Course, url: URL, request: UUID, playAfterCache: Bool = false) {
         guard let cache else { return }
+        cache.cancelOtherDownloads(keeping: url, expectedSHA256: course.media?.sha256)
         caching = true; downloadProgress = nil; cacheError = nil
         cacheTask = Task { [weak self] in
             do {
-                _ = try await cache.file(for: url, expectedSHA256: course.media?.sha256) { [weak self] value in
+                let ready = try await cache.file(for: url, expectedSHA256: course.media?.sha256) { [weak self] value in
                     guard let self, self.loadID == request else { return }
                     self.downloadProgress = value
                 }
                 guard let self, self.loadID == request, !Task.isCancelled else { return }
                 self.caching = false; self.videoAvailableOffline = true
+                if playAfterCache { self.load(course, url: ready, autoStart: true) }
             } catch {
                 guard let self, self.loadID == request, !Task.isCancelled else { return }
-                self.caching = false; self.cacheError = "缓存未完成，可继续在线播放。"
+                self.caching = false; self.cacheError = "缓存未完成：" + ResourceDiagnostics.message(error)
             }
         }
+    }
+    func playFromCache(_ course: Course) {
+        guard !caching, let url = course.media?.url?.url else { return }
+        startCaching(course, url: url, request: loadID, playAfterCache: true)
     }
     func retryCaching(_ course: Course) {
         guard !caching, !videoAvailableOffline, let url = course.media?.url?.url else { return }
@@ -257,6 +271,7 @@ final class CoursePlayer: ObservableObject {
             progress = CourseProgress(duration: duration); position = 0; finished = false
             player.seek(to: .zero); sessionID = UUID(); active = true; onStart?(duration)
         }
+        if !videoAvailableOffline, !caching, let course = loadedCourse, let url = remoteURL { startCaching(course, url: url, request: loadID) }
         playing = true; player.play()
     }
     func pause() {
@@ -282,12 +297,17 @@ final class CoursePlayer: ObservableObject {
         if !finished { onStop?(); error = "播放出现中断，本次未计为完整跟练。" }
         sessionID = nil
     }
-    private func fail() { stop(); error = remote ? "视频播放中断，请检查网络或资源地址后重试。" : "视频播放中断，请检查文件后重试。" }
+    private func fail() {
+        let failure = player.currentItem?.error ?? CourseError.invalidMedia
+        diagnostics?.record(kind: "video-playback", url: loadedCourse?.media?.url?.url, error: failure)
+        stop(); error = "视频播放中断：" + ResourceDiagnostics.message(failure)
+    }
     private func checkLoading() {
         let now = ProcessInfo.processInfo.systemUptime
         if loading && now - loadStarted > 30 {
             loadID = UUID(); loadTask?.cancel(); asset?.cancelLoading(); loading = false
-            error = remote ? "视频加载超时，请检查网络后重试。" : "视频加载超时，请检查文件后重试。"
+            diagnostics?.record(kind: "video-timeout", url: loadedCourse?.media?.url?.url, error: URLError(.timedOut))
+            error = "视频加载超时（-1001），请重试。"
         }
         buffering = playing && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         if buffering {

@@ -41,6 +41,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     @Published var loginError: String?
     @Published var exportMessage: String?
     @Published var appIsActive = true
+    @Published private(set) var recommendedCourseID: String?
+    @Published private(set) var previewCourseID: String?
+    var inReminderTraining = false
+    private var courseRotation = DailyCourseRotation()
+    private var previewRotation = DailyCourseRotation()
     let library: CourseLibrary
     let coursePlayer: CoursePlayer
     let isUITest: Bool
@@ -61,13 +66,13 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     var refreshMenu: (() -> Void)?
 
     override init() {
-        isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || Bundle.main.bundleIdentifier == "local.still.preview"
+        isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || (Bundle.main.bundleIdentifier == "local.still.preview" || Bundle.main.bundleIdentifier?.hasPrefix("local.still.preview.") == true)
         let arguments = ProcessInfo.processInfo.arguments
         let testLibrary = isUITest ? arguments.firstIndex(of: "--ui-test-library").flatMap { index in
             index + 1 < arguments.count ? URL(fileURLWithPath: arguments[index + 1]) : nil
         } : nil
         library = CourseLibrary(isUITest: isUITest, rootOverride: testLibrary)
-        coursePlayer = CoursePlayer(cache: library.videoCache)
+        coursePlayer = CoursePlayer(cache: library.videoCache, diagnostics: library.diagnostics)
         defaults = isUITest ? UserDefaults(suiteName: "local.still.ui-validation")! : .standard
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,
@@ -92,9 +97,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         engine = UsageEngine(settings: initial, segments: savedSegments, breaks: savedBreaks, checkpoint: checkpoint)
         storageError = diskError
         super.init()
+        if !isUITest, let data = defaults.data(forKey: "reminder.courseRotation.v1"),
+           let rotation = try? JSONDecoder().decode(DailyCourseRotation.self, from: data) { courseRotation = rotation }
         coursePlayer.onStart = { [weak self] duration in
             guard let self else { return }
-            self.clearDueNotification(); self.hideAllReminders?()
+            self.clearDueNotification(); if !self.inReminderTraining { self.hideAllReminders?() }
             self.engine.startGuidedRest(self.monitor.sample(), duration: duration)
             self.save(); self.refreshMenu?()
         }
@@ -186,6 +193,35 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         engine.startRest(monitor.sample(), duration: short ? 5 : nil)
         if engine.phase == .resting { showRest?() } else { showCompletion?() }
         save(); refreshMenu?()
+    }
+
+    var reminderCandidates: [Course] {
+        library.courses.filter { course in
+            guard course.media != nil, course.displayDurationMinutes <= 10,
+                  !course.title.contains("按摩") else { return false }
+            let preparation = (course.preparation ?? []).joined()
+            return !["瑜伽垫", "垫子", "按摩球", "墙", "按摩者", "被按摩"].contains(where: preparation.contains)
+        }
+    }
+    func reminderRecommendation(preview: Bool) -> Course? {
+        if !preview, coursePlayer.active { return library.courses.first { $0.id == coursePlayer.courseID } }
+        let id = preview ? previewCourseID : recommendedCourseID
+        return reminderCandidates.first { $0.id == id }
+    }
+    func prepareRecommendation(preview: Bool, shuffle: Bool = false) {
+        if !shuffle, reminderRecommendation(preview: preview) != nil { return }
+        let candidates = reminderCandidates
+        let prefer = Set(candidates.filter { $0.displayDurationMinutes <= settings.restMinutes }.map(\.id))
+        let choose: ([String]) -> String? = { ids in
+            let short = ids.filter { prefer.contains($0) }
+            return (short.isEmpty ? ids : short).randomElement()
+        }
+        if preview {
+            previewCourseID = previewRotation.next(candidates: candidates.map(\.id), date: engine.now, choose: choose)
+        } else {
+            recommendedCourseID = courseRotation.next(candidates: candidates.map(\.id), date: engine.now, choose: choose)
+            if !isUITest, let data = try? JSONEncoder().encode(courseRotation) { defaults.set(data, forKey: "reminder.courseRotation.v1") }
+        }
     }
 
     func openCourses() { hideAllReminders?(); page = .courses; showDashboard?() }

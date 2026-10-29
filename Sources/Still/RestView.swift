@@ -1,4 +1,5 @@
 import SwiftUI
+import StillCore
 
 // A preview never starts a break or changes fatigue.
 enum RestPresentation { case due, resting, preview, completed }
@@ -17,7 +18,7 @@ struct RestActions: View {
             case .completed:
                 Button("继续使用", action: close).buttonStyle(SoftButtonStyle(prominent: true))
             case .due:
-                Button("选择放松课程") { model.openCourses(); close() }.buttonStyle(SoftButtonStyle())
+                Button("查看全部课程") { model.openCourses(); close() }.buttonStyle(SoftButtonStyle())
                 Button { model.startRest() } label: { Text("开始 \(model.settings.restMinutes) 分钟休息").frame(minWidth: 174) }
                     .buttonStyle(SoftButtonStyle(prominent: true))
                 HStack(spacing: 25) {
@@ -33,7 +34,9 @@ struct RestView: View {
     @ObservedObject var model: AppModel
     var presentation: RestPresentation
     var close: () -> Void
+    var chooseCourse: (Course) -> Void = { _ in }
     var body: some View {
+        ScrollView(showsIndicators: false) {
         VStack(spacing: 0) {
             HStack {
                 HStack(spacing: 7) { LineIcon(systemName: "leaf", size: 15); Text(presentation == .preview ? "提醒预览" : "息间") }
@@ -42,11 +45,11 @@ struct RestView: View {
                 Button(action: close) { LineIcon(systemName: "x", size: 13).foregroundStyle(Palette.secondary).frame(width: 28, height: 28).background(Color.white.opacity(0.7), in: Circle()) }
                     .buttonStyle(.plain).accessibilityLabel(presentation == .resting ? "收起休息窗口" : "关闭休息窗口")
             }.padding(.horizontal, 25).padding(.top, 20)
-            FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 195, height: 195).padding(.top, 18)
+            FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 130, height: 130).padding(.top, 12)
             Text(presentation == .completed ? "休息结束" : model.reminderText)
                 .font(.system(size: 24, weight: .medium, design: .rounded))
                 .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
-                .frame(maxWidth: 330, minHeight: 62).padding(.top, 10)
+                .frame(maxWidth: 370, minHeight: 48).padding(.top, 10)
             if presentation == .resting || presentation == .preview {
                 Text(clockText(presentation == .preview ? model.settings.restSeconds : model.engine.restRemaining))
                     .font(.system(size: 43, weight: .light, design: .rounded)).monospacedDigit()
@@ -59,10 +62,15 @@ struct RestView: View {
             if presentation == .preview {
                 Text("预览不会开始休息").font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.top, 8)
             }
-            RestActions(model: model, presentation: presentation, close: close).padding(.top, 25)
+            if presentation != .completed {
+                ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
+                    .padding(.horizontal, 24).padding(.top, 18)
+            }
+            RestActions(model: model, presentation: presentation, close: close).padding(.top, 18)
             Spacer(minLength: 20)
         }
-        .frame(width: 390, height: presentation == .completed ? 470 : 570)
+        .frame(maxWidth: .infinity)
+        }
         .background(LinearGradient(colors: [Color(hex: 0xF6F4FC), Color(hex: 0xEFF5F2)], startPoint: .topLeading, endPoint: .bottomTrailing))
         .foregroundStyle(Palette.ink).environment(\.colorScheme, .light)
         .onExitCommand(perform: close)
@@ -73,6 +81,7 @@ struct FullScreenRestView: View {
     @ObservedObject var model: AppModel
     let presentation: RestPresentation
     var close: () -> Void
+    var chooseCourse: (Course) -> Void = { _ in }
     var body: some View {
         ZStack {
             LinearGradient(colors: [Color(hex: 0xEDE9F9), Color(hex: 0xF6F7FB), Color(hex: 0xE3F0EC)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -85,8 +94,10 @@ struct FullScreenRestView: View {
                     Spacer()
                     Button { close() } label: { LineLabel("退出全屏", systemImage: "x") }.buttonStyle(SoftButtonStyle())
                 }.padding(30)
+                ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
                 Spacer(minLength: 10)
-                FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 230, height: 230)
+                FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 145, height: 145)
                 Text(presentation == .completed ? "休息结束" : model.reminderText)
                     .font(.system(size: 34, weight: .medium, design: .rounded))
                     .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.75)
@@ -100,8 +111,14 @@ struct FullScreenRestView: View {
                     Text("疲劳值 \(model.engine.fatiguePercent)%")
                     if model.settings.showDailyTimeInReminder { Text("今日使用 \(durationText(model.today.seconds))") }
                 }.font(.system(size: 14)).foregroundStyle(Palette.secondary).padding(.top, 14)
-                RestActions(model: model, presentation: presentation, close: close).padding(.top, 30)
+                if presentation != .completed {
+                    ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
+                        .frame(width: 380).padding(.top, 22)
+                }
+                RestActions(model: model, presentation: presentation, close: close).padding(.top, 22)
                 Spacer(minLength: 20)
+                }.frame(maxWidth: .infinity).padding(.bottom, 12)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Text("Esc 退出全屏").font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.bottom, 25)
             }
         }

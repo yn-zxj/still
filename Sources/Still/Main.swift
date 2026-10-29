@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showMainWindow()
         refreshStatusItem()
         if ProcessInfo.processInfo.arguments.contains("--preview-rest") { presentRest(.preview) }
+        if model.isUITest && ProcessInfo.processInfo.arguments.contains("--test-reminder-due") { presentRest(.due) }
         if model.engine.phase == .due && model.settings.remindersEnabled { presentRest(.due) }
     }
 
@@ -100,10 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshStatusItem() {
-        var values: [String] = []
-        if model.settings.showMenuFatigue { values.append("\(model.engine.fatiguePercent)%") }
-        if model.settings.showMenuCountdown { values.append(clockText(model.countdown)) }
-        statusItem.button?.title = values.isEmpty ? "" : "  " + values.joined(separator: " · ")
+        statusItem.button?.title = "  \(model.engine.fatiguePercent)%"
         let symbol: String
         switch model.engine.phase {
         case .resting: symbol = "leaf.fill"
@@ -137,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showMainWindow() { mainWindow.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true) }
     @objc private func openMain() { showMainWindow() }
     @objc private func openSettings() { model.page = .settings; showMainWindow() }
-    @objc private func showAbout() { NSApplication.shared.orderFrontStandardAboutPanel(options: [.applicationName: "息间", .applicationVersion: "0.3.1", .credits: NSAttributedString(string: "给每一段专注，留一点余地。\n原生 macOS 用眼与休息提醒工具")]) }
+    @objc private func showAbout() { NSApplication.shared.orderFrontStandardAboutPanel(options: [.applicationName: "息间", .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版", .credits: NSAttributedString(string: "给每一段专注，留一点余地。\n原生 macOS 用眼与休息提醒工具")]) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMainWindow(); return true }

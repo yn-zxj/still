@@ -176,10 +176,6 @@ struct PreferencesView: View {
                 toggleRow("休息结束声音", "倒计时结束时播放声音。", isOn: $model.settings.soundEnabled, icon: "speaker.wave.2")
                 Divider().overlay(Palette.line)
                 toggleRow("呼吸动效", "呼吸花与轻微过渡；同时尊重系统的减少动态效果设置。", isOn: $model.settings.motionEnabled, icon: "sparkles")
-                Divider().overlay(Palette.line)
-                toggleRow("菜单栏疲劳百分比", "显示当前疲劳进度。", isOn: $model.settings.showMenuFatigue, icon: "percent")
-                Divider().overlay(Palette.line)
-                toggleRow("菜单栏倒计时", "在菜单栏直接查看距离休息的时间。", isOn: $model.settings.showMenuCountdown, icon: "menubar.rectangle")
             }.card(padding: 25)
             VStack(spacing: 22) {
                 HStack(spacing: 15) {

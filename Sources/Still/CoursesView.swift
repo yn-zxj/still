@@ -128,14 +128,14 @@ struct CoursesView: View {
                             }
                             HStack(alignment: .center, spacing: 12) {
                                 CourseActionThumbnail(action: action, localImage: library.thumbnail(for: action), remoteImages: library.remoteThumbnails)
-                                    .frame(width: 66, height: 58).background(Color.white, in: RoundedRectangle(cornerRadius: 10)).clipShape(RoundedRectangle(cornerRadius: 10)).accessibilityHidden(true)
+                                    .frame(width: 66, height: 58).background(Color.white, in: RoundedRectangle(cornerRadius: 10)).clipShape(RoundedRectangle(cornerRadius: 10))
                                 VStack(alignment: .leading, spacing: 7) {
                                     Text(action.name).font(.system(size: 14, weight: .medium)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                                     Text(action.quantityText ?? "时长待补齐").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 14))
-                                .accessibilityElement(children: .ignore)
+                                .accessibilityElement(children: .contain)
                                 .accessibilityLabel("第 \(action.order) 个动作，\(action.name)，\(action.quantityText ?? "时长待补齐")，\(action.phase)")
                         }
                     }.padding(.trailing, 4)
@@ -206,7 +206,7 @@ struct CoursesView: View {
                             Text(player.usingCachedVideo ? "本地缓存 · 离线播放" : "已缓存 · 下次可离线播放").foregroundStyle(Palette.green)
                         } else if player.caching {
                             if let progress = player.downloadProgress { ProgressView(value: progress).tint(Palette.accent).frame(width: 70) }
-                            Text(player.downloadProgress.map { "在线播放 · 正在缓存 \(Int($0 * 100))%" } ?? "在线播放 · 后台缓存中")
+                            Text(player.downloadProgress.map { "正在缓存 \(Int($0 * 100))%" } ?? (player.error == nil ? "在线播放 · 后台缓存中" : "正在缓存视频…"))
                                 .foregroundStyle(Palette.secondary)
                         } else if let error = player.cacheError {
                             Text(error).foregroundStyle(Palette.secondary)
@@ -215,7 +215,15 @@ struct CoursesView: View {
                         Spacer(minLength: 0)
                     }.font(.system(size: 12))
                     if let error = player.error {
-                        HStack { Text(error).font(.system(size: 13)); Button("重试") { player.load(course, url: library.mediaURL(for: course)) } }.foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(error).font(.system(size: 13)).foregroundStyle(.orange)
+                            HStack {
+                                Button("重新加载") { player.load(course, url: library.mediaURL(for: course)) }
+                                if course.media?.url != nil, !player.videoAvailableOffline {
+                                    Button("缓存后再播放") { player.playFromCache(course) }.disabled(player.caching)
+                                }
+                            }.font(.system(size: 13))
+                        }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }.padding(18).background(Palette.lavender.opacity(0.45))
             }
@@ -232,7 +240,7 @@ struct CoursesView: View {
     }
 }
 
-private struct CourseVideoPoster: View {
+struct CourseVideoPoster: View {
     let resource: HTTPSResourceURL?
     let remoteImages: RemoteCourseImages
     @StateObject private var state = CourseImageState()
@@ -280,6 +288,8 @@ private final class CourseImageState: ObservableObject {
     @Published var image: NSImage?
     @Published var hovering = false
     @Published var failed = false
+    @Published var retry = 0
+    @Published var failure: String?
 }
 
 private struct CourseCoverCard: View {
@@ -332,7 +342,7 @@ private struct CourseCoverCard: View {
     }
 }
 
-private struct CourseActionThumbnail: View {
+struct CourseActionThumbnail: View {
     let action: Course.Action
     let localImage: NSImage?
     let remoteImages: RemoteCourseImages
@@ -346,28 +356,52 @@ private struct CourseActionThumbnail: View {
             } else {
                 VStack(spacing: 4) {
                     Text(String(format: "%02d", action.order)).font(.system(size: 20, weight: .light, design: .rounded))
-                    if state.failed { Text("未载入").font(.system(size: 10)) }
+                    if state.failed {
+                        Button("重试") { state.retry += 1 }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Palette.accentDark)
+                            .help(state.failure ?? "图片载入失败").accessibilityLabel("重新加载动作图片")
+                    }
                 }.foregroundStyle(Palette.secondary)
             }
-        }.task(id: action.thumbnailURL) {
+        }.task(id: "\(action.thumbnailURL?.url.absoluteString ?? "")|\(state.retry)") {
             state.image = nil; state.failed = false
             guard localImage == nil, let url = action.thumbnailURL else { return }
             let result = await remoteImages.image(for: url)
             guard !Task.isCancelled else { return }
-            state.image = result; state.failed = result == nil
+            state.image = result; state.failed = result == nil; state.failure = remoteImages.failure(for: url)
         }
     }
+}
+
+/// Display only: AVPlayerLayer has no AVKit wheel/trackpad scrubbing gestures.
+final class CoursePlayerLayerView: NSView {
+    let videoLayer = AVPlayerLayer()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        videoLayer.videoGravity = .resizeAspect
+        layer?.addSublayer(videoLayer)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        videoLayer.frame = bounds
+        CATransaction.commit()
+    }
+    override func scrollWheel(with event: NSEvent) { nextResponder?.scrollWheel(with: event) }
+    override var acceptsFirstResponder: Bool { false }
 }
 
 struct CourseVideoSurface: NSViewRepresentable {
     let player: AVPlayer
     var aspectRatio: CGFloat = 16 / 9
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView(); view.player = player; view.controlsStyle = .none; view.videoGravity = .resizeAspect
-        view.allowsVideoFrameAnalysis = false; view.showsFullScreenToggleButton = false; return view
+    func makeNSView(context: Context) -> CoursePlayerLayerView {
+        let view = CoursePlayerLayerView(frame: .zero); view.videoLayer.player = player; return view
     }
-    func updateNSView(_ view: AVPlayerView, context: Context) { if view.player !== player { view.player = player } }
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: AVPlayerView, context: Context) -> CGSize? {
+    func updateNSView(_ view: CoursePlayerLayerView, context: Context) {
+        if view.videoLayer.player !== player { view.videoLayer.player = player }
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: CoursePlayerLayerView, context: Context) -> CGSize? {
         let width = proposal.width ?? 640
         return CGSize(width: width, height: width / aspectRatio)
     }

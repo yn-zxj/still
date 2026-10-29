@@ -23,6 +23,8 @@ public struct MonitorSettings: Codable, Equatable {
     public var soundEnabled = true
     public var notificationsEnabled = false
     public var motionEnabled = true
+    // Kept in the Codable shape so older settings continue to decode.
+    // The menu bar now always shows only the icon and fatigue percentage.
     public var showMenuCountdown = true
     public var showMenuFatigue = true
     public var reminderStyle: ReminderStyle = .mini
