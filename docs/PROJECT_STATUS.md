@@ -49,7 +49,7 @@ docs/               本项目档案
 
 默认构建缓存为 `.build/`，应用输出为 `dist/息间.app`，两者忽略提交。支持 `STILL_BUILD_DIR` / `STILL_APP_DIR` 覆盖。本机原有应用仍在上层 `Still-macOS/`，不自动替换正在运行的副本。
 
-构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证、Intel 构建或公开版本发布。
+构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.3.3` 发布在私有仓库 Release，不是公开分发版本。
 
 GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 62 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
@@ -209,6 +209,8 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 工作流将 `contents: write` 权限限定给仓库的 GitHub Token；Pull Request 构建仍只产生临时 Actions 产物。
 - 推送 `v*` 标签时，macOS runner 先完成测试、Release 构建、Bundle 与签名校验，再创建或更新同名 GitHub Release。ZIP、SHA-256 和 `artifact-manifest.json` 都作为正式下载附件；重复运行同一标签会原子替换同名附件。
 - Release 说明包含版本、Build、架构、提交、下载校验和以及未使用 Developer ID/公证的边界，避免把 ad-hoc 签名产物描述成 Apple 公证应用。
+- `v0.3.3` 标签构建 `40889158789` 和同提交主分支构建 `40889145077` 均通过。正式 Release 位于 https://github.com/yn-zxj/still/releases/tag/v0.3.3 ，附件为 `Still-0.3.3-6-arm64-macos.zip`、SHA-256 和清单。
+- 已重新从 Release 下载附件并审计：SHA-256 `049b67d662eea812e128ab8f1fb6136a54f249cb0150d118ab36680b6671ec9b` 校验通过；ZIP 无损坏；Bundle 为 0.3.3 (6)、`local.still.app`、arm64，严格签名检查通过；清单提交为 `140a33f`。
 
 #### 资源加载失败排查与恢复
 

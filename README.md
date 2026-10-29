@@ -4,6 +4,8 @@
 
 原生 macOS 用眼与休息提醒工具。SwiftUI + AppKit 界面，独立 Swift 计时引擎，Core Data 本地持久化。没有第三方运行时依赖、自建账号或分析上报；选用远程课程时直接访问其媒体CDN。界面图标使用原生矢量绘制的 Lucide，版权许可随源码及应用附带。
 
+当前版本可从私有仓库的 [GitHub Release v0.3.3](https://github.com/yn-zxj/still/releases/tag/v0.3.3) 下载。附件为 Apple Silicon 构建，使用 ad-hoc 签名，尚未通过 Apple 公证。
+
 ## 开始使用
 
 从源码构建后，应用位于 `dist/息间.app`。关闭主窗口后仍会记录；点击菜单栏叶子图标查看面板，也可以重新打开应用回到主窗口。退出应用会停止计时。可将应用移至“应用程序”目录，再按需启用登录启动。
