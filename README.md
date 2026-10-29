@@ -48,7 +48,7 @@ bash scripts/test.sh
 
 脚本把编译缓存放在仓库 `.build/`，把应用写入 `dist/息间.app`；可用 `STILL_BUILD_DIR` 和 `STILL_APP_DIR` 覆盖输出路径。若全局 Xcode 尚未可用，可在命令前设置 `DEVELOPER_DIR=/Library/Developer/CommandLineTools` 使用已安装的 Command Line Tools。打开 `Package.swift` 可查看源码；也可用 Xcode 打开此 Swift Package，完整 Xcode 的许可由用户自行处理。
 
-GitHub Actions 会在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行测试并构建 macOS 应用。成功后可下载带版本号、Commit、架构清单和 SHA-256 的 ZIP 产物；当前产物使用 ad-hoc 本地签名，尚未配置 Developer ID 和 Apple 公证。
+GitHub Actions 会在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行测试并构建 macOS 应用。`main` 与 PR 构建会保留 14 天 Actions 产物；推送 `v*` 标签时，流水线会自动创建或更新对应 GitHub Release，并附上带版本号、Commit、架构清单和 SHA-256 的 ZIP。当前产物使用 ad-hoc 本地签名，尚未配置 Developer ID 和 Apple 公证。
 
 源代码分层：
 

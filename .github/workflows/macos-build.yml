@@ -1,4 +1,4 @@
-name: Build macOS app
+name: Build and publish macOS app
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: macos-build-${{ github.workflow }}-${{ github.ref }}
@@ -81,7 +81,7 @@ jobs:
             "commit": "$GITHUB_SHA",
             "runner": "$ImageOS-$ImageVersion",
             "signature": "ad-hoc",
-            "distribution": "GitHub Actions artifact; not Developer ID signed or notarized"
+            "distribution": "GitHub Release / Actions artifact; not Developer ID signed or notarized"
           }
           EOF
 
@@ -112,3 +112,43 @@ jobs:
             dist/artifact-manifest.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish versioned GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          app="dist/息间.app"
+          version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist")"
+          build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist")"
+          arch="$(lipo -archs "$app/Contents/MacOS/Still" | tr ' ' '-')"
+          {
+            echo "## 息间 ${version} (${build})"
+            echo
+            echo "- macOS 13 或更高版本"
+            echo "- 架构：\`${arch}\`"
+            echo "- 构建提交：\`${GITHUB_SHA}\`"
+            echo "- 附件使用 ad-hoc 签名，尚未使用 Developer ID 签名，也未通过 Apple 公证"
+            echo
+            echo "### SHA-256"
+            echo
+            echo '```'
+            cat dist/Still-*.zip.sha256
+            echo '```'
+          } > dist/release-notes.md
+
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --latest \
+              --title "息间 ${version}" \
+              --notes-file dist/release-notes.md
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/Still-*.zip \
+            dist/Still-*.zip.sha256 \
+            dist/artifact-manifest.json \
+            --clobber

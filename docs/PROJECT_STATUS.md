@@ -51,7 +51,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证、Intel 构建或公开版本发布。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 62 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。流水线产物为 ad-hoc 签名；Developer ID 签名、公证和发布权限仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 62 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -203,6 +203,12 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 休息规则的计时方式、空闲阈值和提醒间隔改为同宽、36pt 高的自绘菜单按钮。按钮外观、圆角和 Lucide `chevron-down` 由应用控制，点击层仍调用原生 `Menu`，保留键盘与菜单选择行为。
 - 菜单标签使用透明原生交互层覆盖完整自绘表面，避免 macOS 的 borderless menu 样式吞掉边框与箭头，也消除了原先过大的紫色原生箭头块。
 - 在普通 `local.still.app` 中验证浅色、深色、7/28 天切换和菜单实际选择；测试选择“持续阅读”后已恢复“活动估算”。最终 62 项测试通过，Release 构建、严格签名校验和 diff 检查通过，当前恢复浅色主题并继续使用原设置、课程库和统计数据库。
+
+#### 版本 Release 自动发布
+
+- 工作流将 `contents: write` 权限限定给仓库的 GitHub Token；Pull Request 构建仍只产生临时 Actions 产物。
+- 推送 `v*` 标签时，macOS runner 先完成测试、Release 构建、Bundle 与签名校验，再创建或更新同名 GitHub Release。ZIP、SHA-256 和 `artifact-manifest.json` 都作为正式下载附件；重复运行同一标签会原子替换同名附件。
+- Release 说明包含版本、Build、架构、提交、下载校验和以及未使用 Developer ID/公证的边界，避免把 ad-hoc 签名产物描述成 Apple 公证应用。
 
 #### 资源加载失败排查与恢复
 
