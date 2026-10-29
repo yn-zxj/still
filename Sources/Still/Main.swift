@@ -147,4 +147,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidResignActive(_ notification: Notification) { model?.appIsActive = false }
     func applicationWillTerminate(_ notification: Notification) { model?.shutdown() }
 }
-
