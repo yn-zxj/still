@@ -26,6 +26,46 @@ extension View {
     }
 }
 
+/// Rounds only the two corners facing the navigation sidebar (macOS 13 compatible).
+struct ContentPaneShape: Shape {
+    var radius: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let r = min(max(0, radius), min(rect.width, rect.height) / 2), k = 0.5522847498
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r),
+                      control1: CGPoint(x: rect.minX + r * (1 - k), y: rect.maxY),
+                      control2: CGPoint(x: rect.minX, y: rect.maxY - r * (1 - k)))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addCurve(to: CGPoint(x: rect.minX + r, y: rect.minY),
+                      control1: CGPoint(x: rect.minX, y: rect.minY + r * (1 - k)),
+                      control2: CGPoint(x: rect.minX + r * (1 - k), y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+struct ContentPaneLeadingEdge: Shape {
+    var radius: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let r = min(max(0, radius), min(rect.width, rect.height) / 2), k = 0.5522847498
+        let x = rect.minX + 0.5, top = rect.minY + 0.5, bottom = rect.maxY - 0.5
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + r, y: top))
+        path.addCurve(to: CGPoint(x: x, y: rect.minY + r),
+                      control1: CGPoint(x: rect.minX + r * (1 - k), y: top),
+                      control2: CGPoint(x: x, y: rect.minY + r * (1 - k)))
+        path.addLine(to: CGPoint(x: x, y: rect.maxY - r))
+        path.addCurve(to: CGPoint(x: rect.minX + r, y: bottom),
+                      control1: CGPoint(x: x, y: rect.maxY - r * (1 - k)),
+                      control2: CGPoint(x: rect.minX + r * (1 - k), y: bottom))
+        return path
+    }
+}
+
 struct SoftButtonStyle: ButtonStyle {
     var prominent = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

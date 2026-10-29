@@ -39,11 +39,14 @@ struct DashboardView: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
-            }.background(Palette.background)
+            }
+            .background(Palette.background)
+            .clipShape(ContentPaneShape(radius: 28))
+            .overlay { ContentPaneLeadingEdge(radius: 28).stroke(Palette.line.opacity(0.9), lineWidth: 1).allowsHitTesting(false) }
         }
         .foregroundStyle(Palette.ink).tint(Palette.accent)
         .frame(minWidth: 1020, minHeight: 720)
-        .background(Palette.background)
+        .background(Palette.sidebar)
         .environment(\.colorScheme, .light)
         .transaction { if !model.settings.motionEnabled { $0.disablesAnimations = true } }
         .ignoresSafeArea()
@@ -66,7 +69,6 @@ struct DashboardView: View {
             if model.isUITest { Text("体验模式").font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 28).padding(.bottom, 14) }
         }
         .background(Palette.sidebar)
-        .overlay(alignment: .trailing) { Rectangle().fill(Palette.line.opacity(0.8)).frame(width: 1) }
     }
 
     private func navItem(_ page: Page) -> some View {
