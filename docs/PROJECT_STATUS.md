@@ -187,6 +187,7 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 在普通 `local.still.app` 应用中原位重启验收：弹窗无遮挡，图标与文字基线对齐；无障碍树能识别五个操作按钮和活跃度图；“设置与偏好”可从弹窗关闭后直接打开主窗口的偏好设置页。保留原设置、课程库和使用数据库。
 - 本机使用 Command Line Tools 完成 61 项自动测试、Release 构建、临时签名与 ZIP/校验和/清单打包演练。当前构建仍为 arm64，产物使用 ad-hoc 签名；Developer ID、公证和 Intel/Universal 分发尚未验证。
 - 新增 `.github/workflows/macos-build.yml`：在 `main`、`v*`、Pull Request 和手动触发时测试、构建、校验 Bundle 与签名，并上传 14 天保留期的版本化 ZIP、SHA-256 和 JSON 清单。
+- GitHub 托管 runner 首次执行 run `40877899871` 全部通过。已重新下载 artifact `Still-macOS-1`，SHA-256 校验、ZIP 完整性、`0.3.3 (6)`、Commit `1bd9883`、arm64 架构及 ad-hoc 签名均核对通过；runner 为 `macos15-20260907.0337.1`。
 
 #### 资源加载失败排查与恢复
 
