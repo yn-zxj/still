@@ -97,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MenuPanelView(model: model,
             open: { [weak self] in self?.popover.performClose(nil); self?.showMainWindow() },
+            settings: { [weak self] in self?.popover.performClose(nil); self?.openSettings() },
             close: { [weak self] in self?.popover.performClose(nil) }))
     }
 

@@ -130,51 +130,324 @@ struct FullScreenRestView: View {
 struct MenuPanelView: View {
     @ObservedObject var model: AppModel
     var open: () -> Void
+    var settings: () -> Void
     var close: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                HStack(spacing: 9) {
                     FlowerView(isAnimating: false, compact: true).frame(width: 26, height: 26)
-                    Text("息间").font(.system(size: 16, weight: .semibold, design: .rounded))
+                    Text("息间").font(.system(size: 17, weight: .semibold, design: .rounded))
                 }
                 Spacer()
                 StatusBadge(title: model.engine.phase.title, active: ![.away, .suspended, .paused].contains(model.engine.phase))
             }
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .lastTextBaseline) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("疲劳值").font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                        Text("\(model.engine.fatiguePercent)%").font(.system(size: 40, weight: .light, design: .rounded)).monospacedDigit()
+
+            HStack(alignment: .top, spacing: 16) {
+                VStack(spacing: 10) {
+                    MenuMetricCard(
+                        title: "疲劳值",
+                        value: "\(model.engine.fatiguePercent)%",
+                        detail: "\(model.countdownTitle) · \(clockText(model.countdown))",
+                        progress: model.engine.progress,
+                        tint: Palette.accent
+                    )
+                    MenuMetricCard(
+                        title: "今日时长",
+                        value: durationText(model.today.seconds),
+                        detail: "完成休息 \(model.today.completedBreaks) 次 · \(model.settings.mode.title)",
+                        progress: nil,
+                        tint: Palette.green
+                    )
+                }
+                .frame(width: 218)
+
+                VStack(spacing: 3) {
+                    MenuActionRow(
+                        title: model.engine.phase == .resting ? "查看休息" : "现在休息",
+                        icon: "leaf"
+                    ) {
+                        model.startRest()
+                        close()
                     }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text(model.countdownTitle).font(.system(size: 12)).foregroundStyle(Palette.secondary)
-                        Text(clockText(model.countdown)).font(.system(size: 22, weight: .regular, design: .rounded)).monospacedDigit()
+                    MenuActionRow(
+                        title: model.settings.remindersEnabled ? "暂停提醒" : "恢复提醒",
+                        icon: model.settings.remindersEnabled ? "bell.slash" : "bell"
+                    ) {
+                        model.toggleReminders()
+                    }
+                    MenuActionRow(title: "打开主窗口", icon: "app-window", action: open)
+                    MenuActionRow(title: "设置与偏好", icon: "settings-2", action: settings)
+                    MenuActionRow(title: "退出息间", icon: "power", tint: Palette.secondary) {
+                        NSApplication.shared.terminate(nil)
                     }
                 }
+                .frame(maxWidth: .infinity)
+            }
+
+            Divider().overlay(Palette.line)
+            MenuUsageChart(segments: model.engine.segments, date: model.engine.now)
+            if let error = model.reminderError {
+                Text(error)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(22)
+        .frame(width: 468)
+        .background(
+            LinearGradient(
+                colors: [Palette.background, Color(hex: 0xF3F4FA)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .foregroundStyle(Palette.ink)
+        .tint(Palette.accent)
+        .environment(\.colorScheme, .light)
+    }
+}
+
+private struct MenuMetricCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let progress: Double?
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Palette.secondary)
+            Text(value)
+                .font(.system(size: title == "疲劳值" ? 40 : 28, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+            if let progress {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Palette.accent.opacity(0.1))
-                        Capsule().fill(Palette.accent).frame(width: max(0, geo.size.width * model.engine.progress))
+                        Capsule().fill(tint.opacity(0.1))
+                        Capsule()
+                            .fill(tint)
+                            .frame(width: max(2, geo.size.width * progress))
                     }
-                }.frame(height: 4)
-                Text("今日使用 \(durationText(model.today.seconds))").font(.system(size: 12)).foregroundStyle(Palette.secondary)
-            }.padding(18).background(Palette.lavender.opacity(0.7), in: RoundedRectangle(cornerRadius: 18))
-            HStack {
-                Button { model.startRest(); close() } label: { LineLabel(model.engine.phase == .resting ? "查看休息" : "现在休息", systemImage: "leaf") }.buttonStyle(SoftButtonStyle(prominent: true))
-                Spacer()
-                Button { model.toggleReminders() } label: { LineIcon(systemName: model.settings.remindersEnabled ? "bell.slash" : "bell") }
-                    .buttonStyle(SoftButtonStyle()).help(model.settings.remindersEnabled ? "暂停提醒，继续统计" : "恢复提醒")
+                }
+                .frame(height: 3)
+                .animation(.easeOut(duration: 0.35), value: progress)
             }
-            Toggle("持续阅读", isOn: Binding(get: { model.settings.mode == .reading }, set: { model.settings.mode = $0 ? .reading : .activity })).toggleStyle(.switch).font(.system(size: 14))
-            if let error = model.reminderError { Text(error).font(.system(size: 12)).foregroundStyle(Color.orange) }
-            Divider().overlay(Palette.line)
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.secondary)
+                .lineLimit(1)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .background(Palette.surface.opacity(0.78), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .stroke(Palette.line.opacity(0.9), lineWidth: 1)
+        )
+    }
+}
+
+private struct MenuActionRow: View {
+    let title: String
+    let icon: String
+    var tint = Palette.ink
+    let action: () -> Void
+    @StateObject private var state = MenuActionRowState()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                LineIcon(systemName: icon, size: 19)
+                    .foregroundStyle(state.hovering ? Palette.accentDark : tint)
+                    .frame(width: 24, height: 24)
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(tint)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 39, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(state.hovering ? Palette.lavender.opacity(0.75) : Color.clear)
+            )
+        }
+        .buttonStyle(MenuActionPressStyle(reduceMotion: reduceMotion))
+        .onHover { inside in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
+                state.hovering = inside
+            }
+        }
+        .accessibilityLabel(title)
+    }
+}
+
+private final class MenuActionRowState: ObservableObject {
+    @Published var hovering = false
+}
+
+private struct MenuActionPressStyle: ButtonStyle {
+    let reduceMotion: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private struct MenuUsageChart: View {
+    let segments: [UsageSegment]
+    let date: Date
+    @StateObject private var revealState = MenuUsageChartRevealState()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var values: [Double] {
+        let calendar = Calendar.current
+        guard let day = calendar.dateInterval(of: .day, for: date) else { return Array(repeating: 0, count: 24) }
+        return (0..<24).map { hour in
+            guard let start = calendar.date(byAdding: .hour, value: hour, to: day.start),
+                  let end = calendar.date(byAdding: .hour, value: 1, to: start) else { return 0 }
+            let interval = DateInterval(start: start, end: min(end, day.end))
+            return min(1, segments.reduce(0) { $0 + $1.seconds(in: interval) } / interval.duration)
+        }
+    }
+
+    private var latestIndex: Int? {
+        values.lastIndex(where: { $0 > 0.001 })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
             HStack {
-                Button { open() } label: { LineLabel("打开主窗口", systemImage: "external-link") }.buttonStyle(.plain)
+                Text("今日使用")
+                    .font(.system(size: 15, weight: .semibold))
                 Spacer()
-                Button("退出息间") { NSApplication.shared.terminate(nil) }.buttonStyle(.plain).foregroundStyle(Palette.secondary)
-            }.font(.system(size: 13))
-        }.padding(22).frame(width: 350).background(Palette.background).foregroundStyle(Palette.ink).tint(Palette.accent).environment(\.colorScheme, .light)
+                Text("每小时活跃度")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondary)
+            }
+
+            HStack(alignment: .top, spacing: 10) {
+                ZStack(alignment: .topTrailing) {
+                    ForEach(Array([100, 75, 50, 25, 0].enumerated()), id: \.offset) { index, value in
+                        Text("\(value)%")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Palette.secondary.opacity(0.72))
+                            .offset(y: CGFloat(index) * 27 - 5)
+                    }
+                }
+                .frame(width: 34, height: 116, alignment: .topTrailing)
+
+                GeometryReader { geo in
+                    let size = geo.size
+                    ZStack(alignment: .topLeading) {
+                        ForEach(0..<5, id: \.self) { index in
+                            Rectangle()
+                                .fill(Palette.line.opacity(index == 4 ? 0.9 : 0.62))
+                                .frame(height: 1)
+                                .offset(y: size.height * CGFloat(index) / 4)
+                        }
+                        MenuUsageArea(values: values)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Palette.accent.opacity(0.2), Palette.accent.opacity(0.01)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .opacity(revealState.revealed ? 1 : 0)
+                        MenuUsageLine(values: values)
+                            .trim(from: 0, to: revealState.revealed ? 1 : 0)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Palette.accent.opacity(0.7), Palette.accent],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ),
+                                style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
+                            )
+                        if let latestIndex, revealState.revealed {
+                            Circle()
+                                .fill(Palette.accent)
+                                .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                                .frame(width: 7, height: 7)
+                                .shadow(color: Palette.accent.opacity(0.28), radius: 3)
+                                .offset(
+                                    x: size.width * (CGFloat(latestIndex) + 0.5) / 24 - 3.5,
+                                    y: size.height * (1 - CGFloat(values[latestIndex])) - 3.5
+                                )
+                        }
+                    }
+                    .clipped()
+                }
+                .frame(height: 116)
+            }
+
+            HStack(spacing: 0) {
+                ForEach(Array(["0", "6", "12", "18", "24"].enumerated()), id: \.offset) { index, label in
+                    Text(label)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Palette.secondary.opacity(0.78))
+                        .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : index == 4 ? .trailing : .center)
+                }
+            }
+            .padding(.leading, 44)
+        }
+        .onAppear {
+            revealState.revealed = false
+            DispatchQueue.main.async {
+                revealState.revealed = true
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.75), value: revealState.revealed)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("今日每小时活跃度图")
+    }
+}
+
+private final class MenuUsageChartRevealState: ObservableObject {
+    @Published var revealed = false
+}
+
+private struct MenuUsageLine: Shape {
+    let values: [Double]
+    func path(in rect: CGRect) -> Path {
+        guard !values.isEmpty else { return Path() }
+        var path = Path()
+        for (index, value) in values.enumerated() {
+            let point = CGPoint(
+                x: rect.width * (CGFloat(index) + 0.5) / CGFloat(values.count),
+                y: rect.height * (1 - CGFloat(value))
+            )
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
+    }
+}
+
+private struct MenuUsageArea: Shape {
+    let values: [Double]
+    func path(in rect: CGRect) -> Path {
+        guard !values.isEmpty else { return Path() }
+        var path = Path()
+        path.move(to: CGPoint(x: rect.width * 0.5 / CGFloat(values.count), y: rect.height))
+        for (index, value) in values.enumerated() {
+            path.addLine(to: CGPoint(
+                x: rect.width * (CGFloat(index) + 0.5) / CGFloat(values.count),
+                y: rect.height * (1 - CGFloat(value))
+            ))
+        }
+        path.addLine(to: CGPoint(x: rect.width * (CGFloat(values.count) - 0.5) / CGFloat(values.count), y: rect.height))
+        path.closeSubpath()
+        return path
     }
 }

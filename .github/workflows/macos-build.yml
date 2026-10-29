@@ -1,0 +1,114 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and package
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      STILL_BUILD_DIR: ${{ github.workspace }}/.build
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Run tests
+        run: bash scripts/test.sh
+
+      - name: Build app bundle
+        run: bash scripts/build-app.sh
+
+      - name: Validate app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="dist/息间.app"
+          test -x "$app/Contents/MacOS/Still"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --verify --strict --verbose=2 "$app"
+          lipo -archs "$app/Contents/MacOS/Still"
+
+      - name: Package app and checksum
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="dist/息间.app"
+          version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist")"
+          build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist")"
+          arch="$(lipo -archs "$app/Contents/MacOS/Still" | tr ' ' '-')"
+          artifact="dist/Still-${version}-${build}-${arch}-macos.zip"
+
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$artifact"
+          unzip -t "$artifact"
+          digest="$(shasum -a 256 "$artifact" | awk '{print $1}')"
+          printf '%s  %s\n' "$digest" "$(basename "$artifact")" > "$artifact.sha256"
+
+          cat > dist/artifact-manifest.json <<EOF
+          {
+            "product": "Still",
+            "displayName": "息间",
+            "version": "$version",
+            "build": "$build",
+            "architectures": "$arch",
+            "commit": "$GITHUB_SHA",
+            "runner": "$ImageOS-$ImageVersion",
+            "signature": "ad-hoc",
+            "distribution": "GitHub Actions artifact; not Developer ID signed or notarized"
+          }
+          EOF
+
+          artifact_name="$(basename "$artifact")"
+          {
+            echo "artifact_name=$artifact_name"
+            echo "artifact_sha256=$digest"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Still macOS build"
+            echo
+            echo "- Version: \`$version ($build)\`"
+            echo "- Architectures: \`$arch\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Archive: \`$artifact_name\`"
+            echo "- SHA-256: \`$digest\`"
+            echo "- Distribution: ad-hoc signed, not notarized"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Still-macOS-${{ github.run_number }}
+          path: |
+            dist/Still-*.zip
+            dist/Still-*.zip.sha256
+            dist/artifact-manifest.json
+          if-no-files-found: error
+          retention-days: 14
