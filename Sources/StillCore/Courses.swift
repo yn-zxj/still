@@ -1,5 +1,27 @@
 import Foundation
 
+/// A resource location, not proof that the remote file is available or licensed.
+public struct HTTPSResourceURL: Codable, Equatable, Hashable, Sendable {
+    public let url: URL
+    public init(_ value: String) throws {
+        guard !value.isEmpty, !value.contains("\\"),
+              !value.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }),
+              let parts = URLComponents(string: value), parts.scheme?.lowercased() == "https",
+              let host = parts.host, !host.isEmpty,
+              parts.user == nil, parts.password == nil, parts.fragment == nil,
+              parts.port.map({ (1...65535).contains($0) }) ?? true,
+              let url = parts.url else { throw CourseError.unsafeRemoteURL }
+        self.url = url
+    }
+    public init(from decoder: Decoder) throws {
+        try self.init(decoder.singleValueContainer().decode(String.self))
+    }
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(url.absoluteString)
+    }
+}
+
 public struct Course: Codable, Identifiable, Equatable {
     public struct Source: Codable, Equatable {
         public let application: String
@@ -11,12 +33,22 @@ public struct Course: Codable, Identifiable, Equatable {
         public let phase: String
         public let name: String
         public let quantityText: String?
+        public let thumbnail: String?
+        public let thumbnailURL: HTTPSResourceURL?
         public var id: Int { order }
     }
     public struct Media: Codable, Equatable {
-        public let filename: String
+        public let filename: String?
+        public let url: HTTPSResourceURL?
         public let sha256: String?
         public let fullAudioVideoDecode: String?
+        public func playbackURL(in directory: URL, fileExists: (URL) -> Bool) -> URL? {
+            if let filename {
+                let local = directory.appendingPathComponent(filename)
+                if fileExists(local) { return local }
+            }
+            return url?.url
+        }
     }
     public let schemaVersion: Int
     public let id: String
@@ -36,6 +68,7 @@ public struct Course: Codable, Identifiable, Equatable {
     public let actions: [Action]
     public let actionsComplete: Bool
     public let media: Media?
+    public let coverURL: HTTPSResourceURL?
 
     public static func decodeCatalog(_ data: Data) throws -> [Course] {
         let courses = try JSONDecoder().decode([Course].self, from: data)
@@ -43,8 +76,10 @@ public struct Course: Codable, Identifiable, Equatable {
               Set(courses.map(\.id)).count == courses.count else { throw CourseError.invalidCatalog }
         for course in courses {
             guard Set(course.actions.map(\.order)).count == course.actions.count else { throw CourseError.invalidCatalog }
-            if let filename = course.media?.filename {
-                guard !filename.isEmpty, filename != ".", filename != "..", !filename.contains("/"), !filename.contains("\\") else { throw CourseError.unsafeFilename }
+            if let media = course.media, media.filename == nil && media.url == nil { throw CourseError.invalidCatalog }
+            for filename in [course.media?.filename].compactMap({ $0 }) + course.actions.compactMap(\.thumbnail) {
+                guard !filename.isEmpty, filename != ".", filename != "..", filename != "courses.json",
+                      !filename.contains("/"), !filename.contains("\\"), !filename.contains("\0") else { throw CourseError.unsafeFilename }
             }
         }
         return courses
@@ -52,13 +87,16 @@ public struct Course: Codable, Identifiable, Equatable {
 }
 
 public enum CourseError: LocalizedError {
-    case invalidCatalog, unsafeFilename, missingMedia, invalidMedia
+    case invalidCatalog, unsafeFilename, unsafeRemoteURL, missingMedia, invalidMedia, missingThumbnail, invalidThumbnail
     public var errorDescription: String? {
         switch self {
         case .invalidCatalog: return "课程目录格式不正确，或包含重复课程。"
-        case .unsafeFilename: return "视频文件必须与 courses.json 放在同一文件夹。"
+        case .unsafeFilename: return "课程媒体必须与 courses.json 放在同一文件夹。"
+        case .unsafeRemoteURL: return "远程视频和动作图片须使用有效的 HTTPS 地址，且不能包含用户名或密码。"
         case .missingMedia: return "找不到视频文件，请重新导入课程文件夹。"
         case .invalidMedia: return "视频无法播放或校验不一致，请重新取得完整视频。"
+        case .missingThumbnail: return "找不到动作图片，请将图片与课程档案放在同一文件夹后重新导入。"
+        case .invalidThumbnail: return "动作图片无法读取，请检查图片是否完整后重新导入。"
         }
     }
 }

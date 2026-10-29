@@ -8,6 +8,7 @@ let package = Package(
     targets: [
         .target(name: "StillCore"),
         .executableTarget(name: "Still", dependencies: ["StillCore"]),
-        .testTarget(name: "StillCoreTests", dependencies: ["StillCore"])
+        .testTarget(name: "StillCoreTests", dependencies: ["StillCore"]),
+        .testTarget(name: "CourseResourceTests", dependencies: ["Still", "StillCore"])
     ]
 )

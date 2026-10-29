@@ -5,11 +5,10 @@ import UserNotifications
 import StillCore
 
 enum Page: String, CaseIterable {
-    case courses = "休息课程", watch = "我的手表", today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置"
+    case courses = "休息课程", today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置"
     var icon: String {
         switch self {
         case .courses: return "book-open"
-        case .watch: return "watch"
         case .today: return "sun.max"
         case .history: return "chart.bar.xaxis"
         case .rules: return "slider.horizontal.3"
@@ -44,7 +43,6 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     @Published var appIsActive = true
     let library: CourseLibrary
     let coursePlayer = CoursePlayer()
-    let watch = WatchConnection()
     let isUITest: Bool
     private let defaults: UserDefaults
     private let monitor: SystemActivityMonitor
@@ -64,7 +62,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     override init() {
         isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || Bundle.main.bundleIdentifier == "local.still.preview"
-        library = CourseLibrary(isUITest: isUITest)
+        let arguments = ProcessInfo.processInfo.arguments
+        let testLibrary = isUITest ? arguments.firstIndex(of: "--ui-test-library").flatMap { index in
+            index + 1 < arguments.count ? URL(fileURLWithPath: arguments[index + 1]) : nil
+        } : nil
+        library = CourseLibrary(isUITest: isUITest, rootOverride: testLibrary)
         defaults = isUITest ? UserDefaults(suiteName: "local.still.ui-validation")! : .standard
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,
@@ -104,17 +106,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             guard let self, self.engine.guidedRest else { return }
             self.engine.interruptRest(self.monitor.sample()); self.save(); self.refreshMenu?()
         }
-        coursePlayer.onState = { [weak self] in guard let self else { return }; self.watch.sync(player: self.coursePlayer) }
-        watch.onCommand = { [weak self] command in
-            guard let self, self.coursePlayer.active else { return }
-            switch command {
-            case .pause: self.coursePlayer.pause()
-            case .resume: if !self.coursePlayer.playing { self.coursePlayer.toggle() }
-            case .end: self.coursePlayer.stop()
-            }
-        }
         if ProcessInfo.processInfo.arguments.contains("--courses") { page = .courses }
-        if ProcessInfo.processInfo.arguments.contains("--watch") { page = .watch }
 
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().delegate = self
@@ -216,7 +208,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         } catch { storageError = "记录保存失败：\(error.localizedDescription)" }
     }
 
-    func shutdown() { coursePlayer.shutdown(); watch.disconnect(); timer?.invalidate(); save() }
+    func shutdown() { coursePlayer.shutdown(); timer?.invalidate(); save() }
 
     private func clearDueNotification() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["still.due"])

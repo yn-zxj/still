@@ -137,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showMainWindow() { mainWindow.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true) }
     @objc private func openMain() { showMainWindow() }
     @objc private func openSettings() { model.page = .settings; showMainWindow() }
-    @objc private func showAbout() { NSApplication.shared.orderFrontStandardAboutPanel(options: [.applicationName: "息间", .applicationVersion: "0.3.0", .credits: NSAttributedString(string: "给每一段专注，留一点余地。\n原生 macOS 用眼与休息提醒工具")]) }
+    @objc private func showAbout() { NSApplication.shared.orderFrontStandardAboutPanel(options: [.applicationName: "息间", .applicationVersion: "0.3.1", .credits: NSAttributedString(string: "给每一段专注，留一点余地。\n原生 macOS 用眼与休息提醒工具")]) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showMainWindow(); return true }

@@ -217,7 +217,8 @@ struct PreferencesView: View {
                 Spacer()
                 Button(model.engine.trackingPaused ? "恢复统计" : "暂停统计") { model.toggleTracking() }.buttonStyle(SoftButtonStyle())
             }.card(padding: 22)
-            Text("息间 0.2.0").font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 5)
+            Text("息间 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1")")
+                .font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 5)
 
         }.onAppear { model.refreshNotificationStatus() }
     }

@@ -6,9 +6,8 @@
     <key>CFBundleIdentifier</key><string>local.still.app</string>
     <key>CFBundleExecutable</key><string>Still</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.3.0</string>
-    <key>CFBundleVersion</key><string>3</string>
-    <key>NSBluetoothAlwaysUsageDescription</key><string>连接你的手表，显示跟练心率并同步课程进度。</string>
+    <key>CFBundleShortVersionString</key><string>0.3.1</string>
+    <key>CFBundleVersion</key><string>4</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.healthcare-fitness</string>
