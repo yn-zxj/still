@@ -68,6 +68,10 @@ enum LucidePaths {
             p.addLine(to: CGPoint(x: 12, y: 3))
             p.move(to: CGPoint(x: 19, y: 21))
             p.addLine(to: CGPoint(x: 19, y: 9))
+        case "chevron-down":
+            p.move(to: CGPoint(x: 6, y: 9))
+            p.addLine(to: CGPoint(x: 12, y: 15))
+            p.addLine(to: CGPoint(x: 18, y: 9))
         case "circle-check":
             p.addEllipse(in: CGRect(x: 2, y: 2, width: 20, height: 20))
             p.move(to: CGPoint(x: 16, y: 9))

@@ -24,8 +24,10 @@ struct HistoryView: View {
                 HStack {
                     Text("使用时长 · \(chartInHours ? "小时" : "分钟")").font(.system(size: 15, weight: .semibold))
                     Spacer()
-                    Picker("时间范围", selection: $model.historyDays) { Text("近 7 天").tag(7); Text("近 28 天").tag(28) }
-                        .labelsHidden().pickerStyle(.segmented).controlSize(.large).frame(width: 190)
+                    SegmentedPillControl(selection: $model.historyDays, values: [7, 28]) { days in
+                        Text("近 \(days) 天")
+                    }
+                    .frame(width: 178)
                 }
                 Chart(summaries) { summary in
                     BarMark(x: .value("日期", summary.date, unit: .day), y: .value(chartInHours ? "小时" : "分钟", summary.seconds / chartUnit))
@@ -119,19 +121,34 @@ struct RulesView: View {
             }.card(padding: 25)
             VStack(spacing: 22) {
                 ruleRow("如何记录", "阅读模式会持续计时，直到休息或系统睡眠。") {
-                    Picker("计时方式", selection: $model.settings.mode) { ForEach(TrackingMode.allCases, id: \.self) { Text($0.title).tag($0) } }.labelsHidden().frame(width: 145)
+                    CompactMenuPicker(
+                        selection: $model.settings.mode,
+                        values: TrackingMode.allCases,
+                        title: \.title,
+                        accessibilityTitle: "计时方式"
+                    )
                 }
                 Divider().overlay(Palette.line)
                 ruleRow("多久没有操作视为离开", "活动估算会回溯空闲边界；短暂停顿不会清空本轮。") {
-                    Picker("空闲阈值", selection: $model.settings.idleSeconds) {
-                        Text("30 秒").tag(30); Text("1 分钟").tag(60); Text("90 秒").tag(90); Text("3 分钟").tag(180)
-                    }.labelsHidden().frame(width: 110).disabled(model.settings.mode == .reading)
+                    CompactMenuPicker(
+                        selection: $model.settings.idleSeconds,
+                        values: [30, 60, 90, 180],
+                        title: { $0 < 60 ? "\($0) 秒" : "\($0 / 60) 分钟" },
+                        isEnabled: model.settings.mode != .reading,
+                        accessibilityTitle: "空闲阈值"
+                    )
                 }
                 Divider().overlay(Palette.line)
                 ruleRow("稍后提醒与重复提醒", "延后不会清空使用时长，跳过也不会算作完成休息。") {
-                    Picker("提醒间隔", selection: Binding(get: { model.settings.snoozeMinutes }, set: { model.settings.snoozeMinutes = $0; model.settings.repeatMinutes = $0 })) {
-                        Text("3 分钟").tag(3); Text("5 分钟").tag(5); Text("10 分钟").tag(10); Text("15 分钟").tag(15)
-                    }.labelsHidden().frame(width: 110)
+                    CompactMenuPicker(
+                        selection: Binding(
+                            get: { model.settings.snoozeMinutes },
+                            set: { model.settings.snoozeMinutes = $0; model.settings.repeatMinutes = $0 }
+                        ),
+                        values: [3, 5, 10, 15],
+                        title: { "\($0) 分钟" },
+                        accessibilityTitle: "提醒间隔"
+                    )
                 }
             }.card(padding: 25)
 
@@ -179,7 +196,12 @@ struct PreferencesView: View {
                         .foregroundStyle(Palette.secondary)
                 }
                 Spacer(minLength: 20)
-                ThemeSelector(selection: $model.settings.appearanceTheme)
+                SegmentedPillControl(
+                    selection: $model.settings.appearanceTheme,
+                    values: AppearanceTheme.allCases
+                ) { theme in
+                    Text(theme.title)
+                }
                     .frame(width: 280)
             }.card(padding: 25)
             VStack(spacing: 22) {
@@ -242,38 +264,5 @@ struct PreferencesView: View {
             Spacer()
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
         }
-    }
-}
-
-private struct ThemeSelector: View {
-    @Binding var selection: AppearanceTheme
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(AppearanceTheme.allCases) { theme in
-                Button {
-                    selection = theme
-                } label: {
-                    Text(theme.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(selection == theme ? Color.white : Palette.ink)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                        .background(
-                            selection == theme ? Palette.accent : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(theme.title)
-                .accessibilityAddTraits(selection == theme ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Palette.line.opacity(0.9), lineWidth: 1)
-        )
     }
 }

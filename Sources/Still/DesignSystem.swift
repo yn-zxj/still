@@ -131,6 +131,115 @@ struct SettingsButtonStyle: ButtonStyle {
     }
 }
 
+struct SegmentedPillControl<Value: Hashable, Label: View>: View {
+    @Binding var selection: Value
+    let values: [Value]
+    let label: (Value) -> Label
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        selection: Binding<Value>,
+        values: [Value],
+        @ViewBuilder label: @escaping (Value) -> Label
+    ) {
+        _selection = selection
+        self.values = values
+        self.label = label
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(values, id: \.self) { value in
+                Button {
+                    selection = value
+                } label: {
+                    label(value)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(selection == value ? Color.white : Palette.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(
+                            selection == value ? Palette.accent : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == value ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .frame(height: 36)
+        .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Palette.line.opacity(0.9), lineWidth: 1)
+        )
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: selection)
+    }
+}
+
+struct CompactMenuPicker<Value: Hashable>: View {
+    @Binding var selection: Value
+    let values: [Value]
+    let title: (Value) -> String
+    var width: CGFloat = 144
+    var isEnabled = true
+    let accessibilityTitle: String
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 10) {
+                Text(title(selection))
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                LineIcon(systemName: "chevron-down", size: 13)
+                    .foregroundStyle(Palette.secondary)
+            }
+            .foregroundStyle(Palette.ink)
+            .padding(.horizontal, 13)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            Menu {
+                ForEach(values, id: \.self) { value in
+                    Button {
+                        selection = value
+                    } label: {
+                        if selection == value {
+                            Label(title(value), systemImage: "checkmark")
+                        } else {
+                            Text(title(value))
+                        }
+                    }
+                }
+            } label: {
+                Color.white.opacity(0.001)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .disabled(!isEnabled)
+            .accessibilityLabel(accessibilityTitle)
+            .accessibilityValue(title(selection))
+        }
+        .frame(width: width, height: 36)
+        .background(
+            Palette.background.opacity(0.78),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Palette.line, lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.48)
+    }
+}
+
 struct FlowerView: View {
     var isAnimating = true
     var compact = false
