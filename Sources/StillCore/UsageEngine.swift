@@ -23,6 +23,7 @@ public struct UsageEngine {
     private var observedSince: Double?
     private var recoveredIdleSeconds: Double = 0
     private var restStartFatigue: Double = 0
+    public private(set) var guidedRest = false
 
     public init(settings: MonitorSettings = MonitorSettings(), segments: [UsageSegment] = [],
                 breaks: [BreakRecord] = [], checkpoint: EngineCheckpoint? = nil, now: Date = Date()) {
@@ -74,6 +75,7 @@ public struct UsageEngine {
         if snoozeDeadline == nil, let until = snoozeUntil {
             snoozeDeadline = sample.monotonic + max(0, until.timeIntervalSince(sample.date))
         }
+        if phase == .resting, guidedRest { return }
         if phase == .resting, let began = restStartedMonotonic {
             let target = breaks.first(where: { $0.id == restingID })?.targetSeconds ?? settings.restSeconds
             restRemaining = max(0, target - max(0, sample.monotonic - began))
@@ -144,12 +146,27 @@ public struct UsageEngine {
         snoozeDeadline = nil; snoozeUntil = nil
     }
 
+    public mutating func startGuidedRest(_ sample: ActivitySample, duration: Double) {
+        if phase == .resting { interruptRest(sample) }
+        startRest(sample, duration: duration)
+        guidedRest = true
+    }
+
+    public mutating func updateGuidedRest(elapsed: Double, completed: Bool, sample: ActivitySample) {
+        guard guidedRest, phase == .resting, elapsed.isFinite,
+              let target = breaks.first(where: { $0.id == restingID })?.targetSeconds else { return }
+        tick(sample)
+        restRemaining = max(0, target - min(target, max(0, elapsed)))
+        fatigueWorkSeconds = restStartFatigue * restRemaining / target
+        if completed && elapsed >= target - min(1, target * 0.01) { finishRest(at: sample.date) }
+    }
+
     public mutating func interruptRest(_ sample: ActivitySample) {
         tick(sample)
         guard phase == .resting else { return }
         guard let id = restingID, let index = breaks.firstIndex(where: { $0.id == id }) else { return }
         breaks[index].outcome = .interrupted; breaks[index].endedAt = sample.date
-        restingID = nil; restStartedMonotonic = nil; restRemaining = 0
+        restingID = nil; restStartedMonotonic = nil; restRemaining = 0; guidedRest = false
         phase = .working; activeSegmentID = nil; previous = sample
         snooze(sample)
     }
@@ -199,7 +216,7 @@ public struct UsageEngine {
         if let index = breaks.firstIndex(where: { $0.id == restingID }) {
             breaks[index].endedAt = date; breaks[index].outcome = .completed
         }
-        restingID = nil; restStartedMonotonic = nil; restRemaining = 0
+        restingID = nil; restStartedMonotonic = nil; restRemaining = 0; guidedRest = false
         resetRound(); phase = .working; completionSerial += 1
     }
 

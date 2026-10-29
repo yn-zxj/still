@@ -5,6 +5,12 @@ enum LucidePaths {
     static func path(_ name: String) -> Path {
         var p = Path()
         switch name {
+        case "watch":
+            p.addRoundedRect(in: CGRect(x: 5, y: 6, width: 14, height: 12), cornerSize: CGSize(width: 3, height: 3))
+            p.move(to: CGPoint(x: 8, y: 6)); p.addLine(to: CGPoint(x: 9, y: 2)); p.addLine(to: CGPoint(x: 15, y: 2)); p.addLine(to: CGPoint(x: 16, y: 6))
+            p.move(to: CGPoint(x: 8, y: 18)); p.addLine(to: CGPoint(x: 9, y: 22)); p.addLine(to: CGPoint(x: 15, y: 22)); p.addLine(to: CGPoint(x: 16, y: 18))
+            p.move(to: CGPoint(x: 12, y: 9)); p.addLine(to: CGPoint(x: 12, y: 12)); p.addLine(to: CGPoint(x: 14, y: 13))
+
         case "bell-off":
             p.move(to: CGPoint(x: 10.268, y: 21))
             p.addCurve(to: CGPoint(x: 12, y: 21.999912), control1: CGPoint(x: 10.6252789, y: 21.6187526), control2: CGPoint(x: 11.2855051, y: 21.999912))

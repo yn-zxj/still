@@ -17,6 +17,7 @@ struct RestActions: View {
             case .completed:
                 Button("继续使用", action: close).buttonStyle(SoftButtonStyle(prominent: true))
             case .due:
+                Button("选择放松课程") { model.openCourses(); close() }.buttonStyle(SoftButtonStyle())
                 Button { model.startRest() } label: { Text("开始 \(model.settings.restMinutes) 分钟休息").frame(minWidth: 174) }
                     .buttonStyle(SoftButtonStyle(prominent: true))
                 HStack(spacing: 25) {

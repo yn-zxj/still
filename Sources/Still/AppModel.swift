@@ -5,9 +5,11 @@ import UserNotifications
 import StillCore
 
 enum Page: String, CaseIterable {
-    case today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置"
+    case courses = "休息课程", watch = "我的手表", today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置"
     var icon: String {
         switch self {
+        case .courses: return "book-open"
+        case .watch: return "watch"
         case .today: return "sun.max"
         case .history: return "chart.bar.xaxis"
         case .rules: return "slider.horizontal.3"
@@ -40,6 +42,9 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     @Published var loginError: String?
     @Published var exportMessage: String?
     @Published var appIsActive = true
+    let library: CourseLibrary
+    let coursePlayer = CoursePlayer()
+    let watch = WatchConnection()
     let isUITest: Bool
     private let defaults: UserDefaults
     private let monitor: SystemActivityMonitor
@@ -53,11 +58,13 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     var showRest: (() -> Void)?
     var showPreview: (() -> Void)?
     var showDashboard: (() -> Void)?
+    var hideAllReminders: (() -> Void)?
     var hideReminder: (() -> Void)?
     var refreshMenu: (() -> Void)?
 
     override init() {
-        isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test")
+        isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || Bundle.main.bundleIdentifier == "local.still.preview"
+        library = CourseLibrary(isUITest: isUITest)
         defaults = isUITest ? UserDefaults(suiteName: "local.still.ui-validation")! : .standard
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,
@@ -82,6 +89,33 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         engine = UsageEngine(settings: initial, segments: savedSegments, breaks: savedBreaks, checkpoint: checkpoint)
         storageError = diskError
         super.init()
+        coursePlayer.onStart = { [weak self] duration in
+            guard let self else { return }
+            self.clearDueNotification(); self.hideAllReminders?()
+            self.engine.startGuidedRest(self.monitor.sample(), duration: duration)
+            self.save(); self.refreshMenu?()
+        }
+        coursePlayer.onProgress = { [weak self] elapsed, completed in
+            guard let self else { return }
+            self.engine.updateGuidedRest(elapsed: elapsed, completed: completed, sample: self.monitor.sample())
+            if completed { self.previousCompletion = self.engine.completionSerial; self.save() }
+        }
+        coursePlayer.onStop = { [weak self] in
+            guard let self, self.engine.guidedRest else { return }
+            self.engine.interruptRest(self.monitor.sample()); self.save(); self.refreshMenu?()
+        }
+        coursePlayer.onState = { [weak self] in guard let self else { return }; self.watch.sync(player: self.coursePlayer) }
+        watch.onCommand = { [weak self] command in
+            guard let self, self.coursePlayer.active else { return }
+            switch command {
+            case .pause: self.coursePlayer.pause()
+            case .resume: if !self.coursePlayer.playing { self.coursePlayer.toggle() }
+            case .end: self.coursePlayer.stop()
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--courses") { page = .courses }
+        if ProcessInfo.processInfo.arguments.contains("--watch") { page = .watch }
+
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().delegate = self
             let start = UNNotificationAction(identifier: "still.start", title: "开始休息", options: [.foreground])
@@ -130,7 +164,9 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     func tick() {
         let previousPhase = engine.phase
-        engine.tick(monitor.sample())
+        let sample = monitor.sample()
+        if !sample.available { coursePlayer.pause() }
+        engine.tick(sample)
         if engine.reminderSerial != previousReminder {
             previousReminder = engine.reminderSerial
             if engine.phase == .due && settings.remindersEnabled { showReminder?() }
@@ -151,6 +187,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
 
     func startRest() {
+        if coursePlayer.active { page = .courses; showDashboard?(); return }
         clearDueNotification()
         let short = isUITest && ProcessInfo.processInfo.arguments.contains("--short-rest")
         engine.startRest(monitor.sample(), duration: short ? 5 : nil)
@@ -158,8 +195,10 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         save(); refreshMenu?()
     }
 
-    func endRest() { engine.interruptRest(monitor.sample()); hideReminder?(); save(); refreshMenu?() }
-    func snooze(skipped: Bool = false) { clearDueNotification(); engine.snooze(monitor.sample(), skipped: skipped); hideReminder?(); save(); refreshMenu?() }
+    func openCourses() { hideAllReminders?(); page = .courses; showDashboard?() }
+
+    func endRest() { if coursePlayer.active { coursePlayer.stop(); return }; engine.interruptRest(monitor.sample()); hideReminder?(); save(); refreshMenu?() }
+    func snooze(skipped: Bool = false) { if coursePlayer.active { coursePlayer.stop() }; clearDueNotification(); engine.snooze(monitor.sample(), skipped: skipped); hideReminder?(); save(); refreshMenu?() }
     func toggleTracking() { engine.setTrackingPaused(!engine.trackingPaused, sample: monitor.sample()); save(); refreshMenu?() }
     func toggleReminders() {
         settings.remindersEnabled.toggle()
@@ -177,7 +216,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         } catch { storageError = "记录保存失败：\(error.localizedDescription)" }
     }
 
-    func shutdown() { timer?.invalidate(); save() }
+    func shutdown() { coursePlayer.shutdown(); watch.disconnect(); timer?.invalidate(); save() }
 
     private func clearDueNotification() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["still.due"])

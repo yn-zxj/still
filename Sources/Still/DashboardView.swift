@@ -10,6 +10,8 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
                     switch model.page {
+                    case .courses: CoursesView(model: model, library: model.library, player: model.coursePlayer)
+                    case .watch: WatchView(watch: model.watch)
                     case .today: TodayView(model: model)
                     case .history: HistoryView(model: model)
                     case .rules: RulesView(model: model)
@@ -46,7 +48,7 @@ struct DashboardView: View {
                     Text("息间").font(.system(size: 22, weight: .semibold, design: .rounded)).tracking(2)
                 }
             }.padding(.leading, 18).padding(.top, 55).padding(.bottom, 40)
-            ForEach([Page.today, .history, .rules], id: \.self) { page in
+            ForEach([Page.today, .courses, .watch, .history, .rules], id: \.self) { page in
                 navItem(page)
             }
             Spacer(minLength: 35)

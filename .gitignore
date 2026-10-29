@@ -19,3 +19,8 @@ local-data/
 .env.*
 *.p12
 *.mobileprovision
+.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
