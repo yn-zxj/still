@@ -64,6 +64,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private var previewRotation = DailyCourseRotation()
     let posture: PostureMonitor
     let agentActivity: AgentActivityCoordinator
+    let hapiInstaller: HAPIInstaller
     let updater = AppUpdater()
     let library: CourseLibrary
     let coursePlayer: CoursePlayer
@@ -104,6 +105,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
                         .appendingPathComponent("Still/AgentActivity.json")
             )
         )
+        hapiInstaller = HAPIInstaller()
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,
            let legacy = UserDefaults(suiteName: "local.xijian.app") {
@@ -307,6 +309,16 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             settings.hapiExecutablePath = url.path
+        }
+    }
+
+    func installHAPI() {
+        hapiInstaller.install { [weak self] url, _ in
+            guard let self else { return }
+            self.settings.hapiExecutablePath = url.path
+            self.settings.agentActivityEnabled = true
+            self.settings.hapiSyncEnabled = true
+            self.agentActivity.syncNow()
         }
     }
 

@@ -1,4 +1,4 @@
-# 息间 0.5.0
+# 息间 0.5.1
 
 给每一段专注，留一点余地。
 
@@ -14,6 +14,7 @@
 
 - 今天：疲劳百分比、下一次休息倒计时、今日使用、完成休息、最长一轮、全天使用分布。
 - 时间去向：今天/7 天/28 天的前台应用时间流、类别构成、应用排行和切换情况；通过 HAPI 汇总本机及其它机器上的 Codex、Claude Code 等 Agent 会话。时间轴只画到当前时刻。
+- HAPI 一键安装：从官方 GitHub Release 按芯片下载独立二进制，校验 SHA-256 后安装到用户目录，不需要 npm、Homebrew 或管理员权限。
 - 使用记录：真实的 7 天/28 天历史、最近休息、CSV 导出。
 - 休息规则：全屏弹窗、迷你弹窗、系统通知三选一；自定义文案、今日时长显示、独立预览；三组预设和自定义时长、活动估算/持续阅读、空闲及重复提醒间隔。
 - 偏好设置：提醒与统计分别暂停、声音、动效、Agent/HAPI 同步、隐藏 Dock 图标、可选登录启动、坐姿功能开关及 GitHub Release 检查更新。
@@ -76,6 +77,7 @@ Sources/Still/
   DashboardView.swift          今日与侧栏
   InsightsView.swift           时间去向、时间流和类别图表
   AgentActivityCoordinator.swift HAPI 定位、版本门槛、同步与状态
+  HAPIInstaller.swift        官方 Release 下载、校验、安全解压和安装
   DetailViews.swift            历史、规则与设置
   ReminderSettingsView.swift   提醒方式、文案与预览设置
   ReminderWindowController.swift 全屏与迷你提醒窗口管理
@@ -95,7 +97,7 @@ Tests/StillCoreTests/         Swift Testing 边界测试
 
 Agent 时间同样参考 Weft 的 HAPI 接入方式，使用 `hapi.activity.v1`、`hapi usage --json` 和 HAPI 0.30 的最低版本门槛。应用只保存会话标题、项目路径、Agent 类型、机器名称和工作时段，不保存 prompt、回复或代码内容。同步由本机 `hapi` 直接连接用户配置的 HAPI Hub；相同 `session.id` 重复同步会合并，等待用户回复的 `waits` 会从工作时间扣除，本机已读过且由 HAPI 返回的会话也统一进入时间去向。
 
-本机没有安装 `hapi`，因此普通应用只验收了“未找到 hapi”的状态和安全边界；模拟 CLI 覆盖了成功同步、远端机器、重复会话、等待扣除、退出码和持久化。真实 Hub 登录、跨机器会话和不同 HAPI 版本仍需安装对应 CLI 后验收。
+普通应用已从“未找到 hapi”状态实际点击安装 0.33.3，安装文件通过官方 SHA-256 校验并可运行，随后正确进入“HAPI 尚未登录”。模拟 CLI 覆盖成功同步、远端机器、重复会话、等待扣除、退出码和持久化。真实 Hub 登录与跨机器会话仍需用户按 HAPI 官方流程配置后验收。
 
 隐私边界、统计口径与已知限制见 [时间去向](docs/TIME_INSIGHTS.md)。
 

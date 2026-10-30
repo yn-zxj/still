@@ -102,4 +102,94 @@ struct AgentActivityCoordinatorTests {
         #expect(loaded.count == 1)
         #expect(abs(loaded[0].spans.reduce(0) { $0 + $1.seconds } - 120) < 0.001)
     }
+
+    @Test func officialHAPIReleaseSelectsTheCurrentMacArchitectureAndChecksum() throws {
+        let json = #"""
+        {
+          "tag_name": "v0.33.3",
+          "html_url": "https://github.com/tiann/hapi/releases/tag/v0.33.3",
+          "draft": false,
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "checksums.txt",
+              "size": 452,
+              "browser_download_url": "https://github.com/tiann/hapi/releases/download/v0.33.3/checksums.txt"
+            },
+            {
+              "name": "hapi-darwin-arm64.tar.gz",
+              "size": 66082111,
+              "browser_download_url": "https://github.com/tiann/hapi/releases/download/v0.33.3/hapi-darwin-arm64.tar.gz"
+            },
+            {
+              "name": "hapi-darwin-x64.tar.gz",
+              "size": 68372453,
+              "browser_download_url": "https://github.com/tiann/hapi/releases/download/v0.33.3/hapi-darwin-x64.tar.gz"
+            }
+          ]
+        }
+        """#
+        var release = try JSONDecoder().decode(HAPIReleaseManifest.self, from: Data(json.utf8))
+        try release.validate(for: HAPIReleaseClient.repository)
+        #expect(release.version == "0.33.3")
+        #expect(release.asset(named: "hapi-darwin-arm64.tar.gz")?.size == 66_082_111)
+        #expect(release.asset(named: "hapi-darwin-x64.tar.gz")?.size == 68_372_453)
+        let checksums = """
+        1375cc37f95b03866eec6f5c0b742b9ef3187ac073f92e9817d82092ac5a67e8  hapi-darwin-arm64.tar.gz
+        84e0f18bec180a1b2650322973b1d5a3fc11645cd418364f81d769b065237f97  hapi-darwin-x64.tar.gz
+        """
+        #expect(HAPIReleaseClient.checksum(named: "hapi-darwin-arm64.tar.gz", in: checksums)
+            == "1375cc37f95b03866eec6f5c0b742b9ef3187ac073f92e9817d82092ac5a67e8")
+        #expect(HAPIReleaseClient.checksum(named: "missing.tar.gz", in: checksums) == nil)
+
+        release.assets[1].downloadURL = URL(string: "https://example.com/hapi.tgz")!
+        #expect(throws: HAPIInstallError.invalidRelease) {
+            try release.validate(for: HAPIReleaseClient.repository)
+        }
+    }
+
+    @Test func installerExtractsOnlyVerifiedHAPIBinaryIntoUserDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("still-hapi-install-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let binary = source.appendingPathComponent("hapi")
+        try Data("#!/bin/sh\necho 0.33.3\n".utf8).write(to: binary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
+        let archive = root.appendingPathComponent("hapi-darwin-arm64.tar.gz")
+
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-czf", archive.path, "-C", source.path, "hapi"]
+        try tar.run()
+        tar.waitUntilExit()
+        #expect(tar.terminationStatus == 0)
+
+        let installed = try HAPIInstaller.installVerifiedArchive(archive, version: "0.33.3", home: root)
+        #expect(installed.path.hasSuffix("/Library/Application Support/Still/HAPI/bin/hapi"))
+        #expect(FileManager.default.isExecutableFile(atPath: installed.path))
+        let attributes = try FileManager.default.attributesOfItem(atPath: installed.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+        let metadata = root.appendingPathComponent("Library/Application Support/Still/HAPI/install.json")
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: metadata)) as? [String: String]
+        #expect(object?["version"] == "0.33.3")
+    }
+
+    @Test func installerRejectsArchivesWithUnexpectedPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("still-hapi-unsafe-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source/nested")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data("not hapi".utf8).write(to: source.appendingPathComponent("payload"))
+        let archive = root.appendingPathComponent("unsafe.tar.gz")
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-czf", archive.path, "-C", root.appendingPathComponent("source").path, "nested/payload"]
+        try tar.run()
+        tar.waitUntilExit()
+
+        #expect(throws: HAPIInstallError.unsafeArchive) {
+            try HAPIInstaller.installVerifiedArchive(archive, version: "0.33.3", home: root)
+        }
+    }
 }

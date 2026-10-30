@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.5.0 / build 11（本轮待发布）
+## 当前实现：0.5.1 / build 12（本轮待发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -55,7 +55,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。发布产物为 arm64 + x86_64 通用二进制，使用本地临时签名，尚无 Developer ID 签名或公证。此前 `v0.4.2` 虽然声明 macOS 13+，但实际只有 arm64；Intel 用户应改用 0.4.3 通用版。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 108 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 121 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -303,3 +303,13 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 本轮最终本地 118 项测试通过（84 核心 + 34 资源/网络/模型）。新增 HAPI schema、重复会话、等待扣除、远端机器、墙钟并集、31 天持久化、版本门槛、二进制定位、退出码 3/4、模拟 CLI 完整同步与重同步去重，以及时间轴截止当前时刻回归。
 - 普通 `dist/息间.app` 已检查时间去向、Agent 空状态、状态栏时间去向卡片、外部点击收起、Dock 隐藏/恢复及菜单栏入口。真实课程、设置和使用数据库继续原样保留。
 - 本机没有安装 `hapi`，因此普通应用正确显示“未找到 hapi”；真实 Hub 登录、跨机器会话、长时间同步失败恢复未实机验收，不能用模拟 CLI 结果替代。发布结果将在正式提交、标签和云端附件审计后补充。
+
+### 0.5.1 HAPI 一键安装
+
+- 设置页在“未找到 hapi”或版本过旧时显示一键安装/更新按钮。
+- 只访问 `tiann/hapi` 官方 GitHub Release；按当前运行芯片选择 `hapi-darwin-arm64.tar.gz` 或 `hapi-darwin-x64.tar.gz`。
+- 下载后核对 GitHub Release 的 `checksums.txt` 与本地 SHA-256；只接受仅包含单个 `hapi` 文件的归档，避免路径穿越。
+- 安装到 `~/Library/Application Support/Still/HAPI/bin/hapi`，权限为 `0700`；不需要 npm、Homebrew、管理员权限或写入 `/usr/local`。
+- 安装完成后运行 `hapi --version`，只接受 0.30.0 以上版本，并自动写入设置、开始同步。
+- 0.5.1 最终本地 121 项测试通过（84 核心 + 37 资源、网络与模型）。新增官方 Release 架构/校验、恶意归档拒绝、只有单个 `hapi` 的归档安装和目标权限验证。
+- 普通 `dist/息间.app` 已从“未找到 hapi”实际点击安装官方 0.33.3；下载约 63 MB，安装文件为 arm64、权限 `0700`、`hapi --version` 返回 0.33.3，应用随后自动进入“HAPI 尚未登录”。这验证了安装链路，真实 Hub 登录与跨机器会话仍需另行验收。

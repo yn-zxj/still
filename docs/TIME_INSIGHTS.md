@@ -52,8 +52,9 @@ hapi usage --json --since <milliseconds> --until <milliseconds>
 - 报告退出码 3 显示“尚未登录”，4 显示“HAPI Hub 需要升级”；旧版未知 `usage` 命令不会被误当成 Agent 启动。
 - 自动同步间隔 5 分钟，设置页可立即同步、手动选择 `hapi` 或恢复自动查找。
 - Agent 摘要单独保存在 `~/Library/Application Support/Still/AgentActivity.json`，保留 31 天、文件权限 0600。清除历史不会删除 HAPI Hub 中的原始会话。
+- 本机没有可用的 `hapi` 时，设置页可从官方 GitHub Release 一键安装。安装器按芯片选择 `arm64/x64`，用官方 `checksums.txt` 校验 SHA-256，只接受单个 `hapi` 文件的安全归档，最终安装到 `~/Library/Application Support/Still/HAPI/bin/hapi`，无需管理员权限。
 
-HAPI 只返回会话级元数据。息间不读取 Agent transcript，不保存 prompt、回复、代码、终端输出或账号凭据。同步由本机 `hapi` 直接连接用户自己的 Hub，不经过息间的服务器。本机尚未安装 HAPI，真实 Hub 与跨机器验收不能由模拟报告替代。
+HAPI 只返回会话级元数据。息间不读取 Agent transcript，不保存 prompt、回复、代码、终端输出或账号凭据。同步由本机 `hapi` 直接连接用户自己的 Hub，不经过息间的服务器。0.5.1 普通应用已实际安装并验证 HAPI 0.33.3，但本机没有登录 Hub，真实 Hub 与跨机器验收仍不能由模拟报告替代。
 
 ## 已知限制
 

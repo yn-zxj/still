@@ -185,12 +185,14 @@ struct RulesView: View {
 struct PreferencesView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var agentActivity: AgentActivityCoordinator
+    @ObservedObject private var hapiInstaller: HAPIInstaller
     @StateObject private var state = PreferencesViewState()
 
     @MainActor
     init(model: AppModel) {
         self.model = model
         _agentActivity = ObservedObject(wrappedValue: model.agentActivity)
+        _hapiInstaller = ObservedObject(wrappedValue: model.hapiInstaller)
     }
 
     var body: some View {
@@ -281,6 +283,11 @@ struct PreferencesView: View {
                         Button("立即同步") { agentActivity.syncNow() }
                             .buttonStyle(SettingsButtonStyle())
                             .disabled(!model.settings.hapiSyncEnabled || agentActivity.status == .checking || agentActivity.status == .syncing)
+                        if offersHAPIInstall {
+                            Button(installButtonTitle) { model.installHAPI() }
+                                .buttonStyle(SettingsButtonStyle(prominent: true))
+                                .disabled(hapiInstaller.state.isBusy)
+                        }
                         Button("选择 hapi…") { model.chooseHAPIPath() }
                             .buttonStyle(SettingsButtonStyle())
                         if !model.settings.hapiExecutablePath.isEmpty {
@@ -291,6 +298,30 @@ struct PreferencesView: View {
                         Text("\(agentActivity.sessions.count) 个已存会话")
                             .font(.system(size: 11))
                             .foregroundStyle(Palette.secondary)
+                    }
+                    if hapiInstaller.state.isBusy {
+                        HStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text(hapiInstaller.state.title)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Palette.secondary)
+                        }
+                    } else if case .installed(let version, _) = hapiInstaller.state {
+                        Label("HAPI \(version) 已下载并通过 SHA-256 校验", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Palette.green)
+                    } else if case .failed(let message) = hapiInstaller.state {
+                        Text(message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if offersHAPIInstall {
+                        Text("安装会从 HAPI 官方 GitHub Release 下载适合当前芯片的独立二进制，校验 SHA-256 后放到用户目录，不需要 npm、Homebrew 或管理员权限。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondary)
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Text("只保存会话标题、项目路径、机器名称和工作时段，不保存 prompt、回复或代码内容。同步直接连接你自己的 HAPI Hub；同一会话重复同步会合并。")
                         .font(.system(size: 11))
@@ -398,6 +429,17 @@ struct PreferencesView: View {
             Spacer()
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
         }
+    }
+
+    private var offersHAPIInstall: Bool {
+        if case .notInstalled = agentActivity.status { return true }
+        if case .cliTooOld = agentActivity.status { return true }
+        return false
+    }
+
+    private var installButtonTitle: String {
+        if case .cliTooOld = agentActivity.status { return "更新 hapi" }
+        return "安装 hapi"
     }
 }
 
