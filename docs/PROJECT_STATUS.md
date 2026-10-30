@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.4.2 / build 9（本轮待发布）
+## 当前实现：0.4.2 / build 9（已发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -51,7 +51,7 @@ docs/               本项目档案
 
 默认构建缓存为 `.build/`，应用输出为 `dist/息间.app`，两者忽略提交。支持 `STILL_BUILD_DIR` / `STILL_APP_DIR` 覆盖。本机原有应用仍在上层 `Still-macOS/`，不自动替换正在运行的副本。
 
-构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.4.1` 发布在私有仓库 Release，不是公开分发版本。
+构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.4.2` 发布在私有仓库 Release，不是公开分发版本。
 
 GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 102 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
@@ -266,3 +266,5 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 最终本地 102 项测试通过（74 核心 + 28 资源/网络/模型），Release 构建与严格签名校验通过，diff 检查通过。
 - 普通应用实际验收：14 个输入框完整显示，Tab 移焦和回车保存、越界拒绝均通过；角度改为 13°，正常退出后重开仍为 13°；比例 0.11 保存、展示时间 2 秒同步文案，实际预览窗口观测约 2.3 秒后关闭（含采样/调度开销）。恢复默认按钮把所有验收用数值恢复，未重置统计、课程、外观或用眼规则。
 - 本次摄像头仍等待用户开启，没有替用户校准或修改系统授权；真人检测准确性不是输入框/UI 验证覆盖范围。私有更新令牌、Intel/公证等既有未验收边界保持不变。
+- 提交 `f2dfd97345ba5dd4b2b732d7f9d206418d54d480`、标签 `v0.4.2` 已推送；主分支 run `40990878474`、标签 run `40990884991` 均成功，云端 102 项测试通过。Release：https://github.com/yn-zxj/still/releases/tag/v0.4.2 ，ZIP/校验和/清单已正式发布，仓库复核 PRIVATE。
+- 已下载 Release 重新审计：`Still-0.4.2-9-arm64-macos.zip` SHA-256 `ed11d7c3db36bf86c6d2dc586477bc259bc6de9732d13559930b8ad57d3fc5b7` 与侧车及 GitHub 一致；ZIP 完整、`local.still.app` 0.4.2 (9)、arm64、严格签名验证、模型摘要与许可证通过；清单对应上述实现提交。没有运行下载审计副本，普通应用继续保留真实数据。
