@@ -37,10 +37,22 @@ enum OpenPoseDecoder {
             switch values.dataType {
             case .float32: return values.dataPointer.assumingMemoryBound(to: Float.self)[offset]
             case .double: return Float(values.dataPointer.assumingMemoryBound(to: Double.self)[offset])
-            case .float16: return Float(values.dataPointer.assumingMemoryBound(to: Float16.self)[offset])
+            case .float16: return OpenPoseDecoder.float16Value(values.dataPointer.assumingMemoryBound(to: UInt16.self)[offset])
             default: return 0
             }
         }
+    }
+    /// IEEE 754 binary16 without Swift.Float16, whose conversion API is unavailable on Intel macOS.
+    static func float16Value(_ bits: UInt16) -> Float {
+        let sign = UInt32(bits & 0x8000) << 16
+        let exponent = UInt32((bits >> 10) & 0x1f), fraction = UInt32(bits & 0x03ff)
+        if exponent == 0 {
+            if fraction == 0 { return Float(bitPattern: sign) }
+            let magnitude = Float(fraction) / 16_777_216
+            return sign == 0 ? magnitude : -magnitude
+        }
+        if exponent == 31 { return Float(bitPattern: sign | 0x7f800000 | (fraction << 13)) }
+        return Float(bitPattern: sign | ((exponent + 112) << 23) | (fraction << 13))
     }
     struct Peak {
         let x: Int, y: Int

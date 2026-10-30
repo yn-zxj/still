@@ -1,10 +1,10 @@
-# 息间 0.4.2
+# 息间 0.4.3
 
 给每一段专注，留一点余地。
 
 原生 macOS 用眼与休息提醒工具。SwiftUI + AppKit 界面，独立 Swift 计时引擎，Core Data 本地持久化。没有第三方运行时依赖、自建账号或分析上报；选用远程课程时直接访问其媒体CDN。界面图标使用原生矢量绘制的 Lucide，版权许可随源码及应用附带。
 
-已发布版本可从私有仓库的 [GitHub Releases](https://github.com/yn-zxj/still/releases) 下载。附件为 Apple Silicon 构建，使用 ad-hoc 签名，尚未通过 Apple 公证。
+已发布版本可从私有仓库的 [GitHub Releases](https://github.com/yn-zxj/still/releases) 下载。附件为 Apple Silicon 与 Intel 通用构建，支持 macOS 13 及以上；使用 ad-hoc 签名，尚未通过 Apple 公证。
 
 ## 开始使用
 
@@ -51,7 +51,7 @@ bash scripts/test.sh
 
 脚本把编译缓存放在仓库 `.build/`，把应用写入 `dist/息间.app`；可用 `STILL_BUILD_DIR` 和 `STILL_APP_DIR` 覆盖输出路径。若全局 Xcode 尚未可用，可在命令前设置 `DEVELOPER_DIR=/Library/Developer/CommandLineTools` 使用已安装的 Command Line Tools。打开 `Package.swift` 可查看源码；也可用 Xcode 打开此 Swift Package，完整 Xcode 的许可由用户自行处理。
 
-GitHub Actions 会在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行测试并构建 macOS 应用。`main` 与 PR 构建会保留 14 天 Actions 产物；推送 `v*` 标签时，流水线会自动创建或更新对应 GitHub Release，并附上带版本号、Commit、架构清单和 SHA-256 的 ZIP。当前产物使用 ad-hoc 本地签名，尚未配置 Developer ID 和 Apple 公证。
+GitHub Actions 会在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行测试并构建 arm64 + x86_64 通用应用。通用包会分别在 macOS 14 Apple Silicon 和 Intel runner 上启动校验；只有两个架构都通过，`v*` 标签才会创建或更新 GitHub Release，并附上带版本号、Commit、架构清单和 SHA-256 的 ZIP。当前产物使用 ad-hoc 本地签名，尚未配置 Developer ID 和 Apple 公证。
 
 版本检查支持公开仓库匿名访问、私有仓库 Keychain 只读令牌；下载包需通过大小和 SHA-256 检查，再由用户解压并替换原应用。坐姿模型来源、论文对应关系、精度限制和隐私说明见 [坐姿与更新](docs/POSTURE_AND_UPDATES.md)。应用不录制、保存或上传摄像头画面；正面镜头不测量标准颅椎角或颈椎曲度。
 
@@ -81,7 +81,7 @@ Tests/StillCoreTests/         Swift Testing 边界测试
 
 ## 当前范围和待验收项
 
-- 本地编译产物为 arm64，使用临时本地签名；尚未做 Developer ID 签名、公证、App Store 发布或 Intel 构建。部署目标为 macOS 13，实际只在本机系统运行，测试框架本身需要 macOS 14 及以上。
+- 本地编译产物为 arm64 + x86_64 通用二进制，使用临时本地签名；尚未做 Developer ID 签名、公证或 App Store 发布。部署目标为 macOS 13；测试框架本身需要 macOS 14 及以上。
 - 已实现全屏、迷你窗和通知提醒；全屏会为当前连接的每块屏幕建立窗口，并在显示器变化时更新。不同多屏组合、其他应用全屏、屏幕热插拔仍需真机验收。iCloud/手机同步、旧 Eye Monitor CSV 导入尚未实现。
 - 迷你窗使用浮窗层级；全屏提醒使用覆盖窗口并提供退出操作。不承诺覆盖系统安全界面或所有其他应用的独占全屏内容。
 - 公开的系统睡眠、屏幕睡眠和会话切换通知已接入；锁屏额外使用未文档化的 `com.apple.screenIsLocked/Unlocked` 分布式通知作为补充。它不是跨版本保证，仍需验证“锁屏但屏幕保持点亮”等场景。手动暂停统计也可用。

@@ -22,7 +22,7 @@ private final class UpdateProtocol: URLProtocol {
 @Suite(.serialized) struct UpdateTests {
     func client(status: Int = 200) -> ReleaseClient {
         UpdateProtocol.status = status
-        UpdateProtocol.payload = Data(#"{"tag_name":"v0.4.0","html_url":"https://github.com/yn-zxj/still/releases/tag/v0.4.0","draft":false,"prerelease":false,"assets":[{"id":1,"name":"Still-0.4.0-7-arm64-macos.zip","size":1024,"state":"uploaded"}]}"#.utf8)
+        UpdateProtocol.payload = Data(#"{"tag_name":"v0.4.3","html_url":"https://github.com/yn-zxj/still/releases/tag/v0.4.3","draft":false,"prerelease":false,"assets":[{"id":1,"name":"Still-0.4.3-10-arm64-macos.zip","size":1024,"state":"uploaded"},{"id":2,"name":"Still-0.4.3-10-x86_64-arm64-macos.zip","size":2048,"state":"uploaded"}]}"#.utf8)
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [UpdateProtocol.self]
         return ReleaseClient(session: URLSession(configuration: config))
     }
@@ -31,11 +31,17 @@ private final class UpdateProtocol: URLProtocol {
         let release = try await client.latest(token: nil)
         #expect(release.valid)
         #expect(release.archive(architecture: "arm64")?.id == 1)
-        #expect(release.archive(architecture: "x86_64") == nil)
+        #expect(release.archive(architecture: "x86_64")?.id == 2)
         #expect(UpdateProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization") == nil)
         _ = try await client.latest(token: "test-fixture-token")
         #expect(UpdateProtocol.lastRequest?.url?.host == "api.github.com")
         #expect(UpdateProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer test-fixture-token")
+    }
+    @Test func universalArchiveIsUsableFromEitherArchitecture() throws {
+        let json = #"{"tag_name":"v0.4.3","html_url":"https://github.com/yn-zxj/still/releases/tag/v0.4.3","draft":false,"prerelease":false,"assets":[{"id":7,"name":"Still-0.4.3-10-x86_64-arm64-macos.zip","size":4096,"state":"uploaded"}]}"#
+        let release = try JSONDecoder().decode(GitHubRelease.self, from: Data(json.utf8))
+        #expect(release.archive(architecture: "arm64")?.id == 7)
+        #expect(release.archive(architecture: "x86_64")?.id == 7)
     }
     @Test func private404AndExpiredTokensAreNotReportedAsUpToDate() async {
         for code in [401, 404, 500] {

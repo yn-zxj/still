@@ -21,6 +21,23 @@ struct OpenPoseTests {
         return (heat,paf)
     }
     private let face = CGRect(x: 0.4, y: 0.5, width: 0.2, height: 0.2)
+    @Test func binary16DecodingMatchesIEEE754() {
+        let values: [(UInt16, Float)] = [
+            (0x0000, 0),
+            (0x8000, -0),
+            (0x0001, 0x1p-24),
+            (0x3555, 0.33325195),
+            (0x3c00, 1),
+            (0xc000, -2),
+            (0x7bff, 65504)
+        ]
+        for (bits, expected) in values {
+            #expect(OpenPoseDecoder.float16Value(bits) == expected)
+        }
+        #expect(OpenPoseDecoder.float16Value(0x7c00) == .infinity)
+        #expect(OpenPoseDecoder.float16Value(0xfc00) == -.infinity)
+        #expect(OpenPoseDecoder.float16Value(0x7e00).isNaN)
+    }
     @Test @MainActor func manualCameraPauseSurvivesRestartInItsOwnSettingsDomain() {
         let name = "local.still.tests.pause." + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!

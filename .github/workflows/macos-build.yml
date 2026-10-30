@@ -17,12 +17,14 @@ concurrency:
 
 jobs:
   build:
-    name: Test and package
+    name: Test and build universal app
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
       STILL_BUILD_DIR: ${{ github.workspace }}/.build
+    outputs:
+      upload_name: ${{ steps.package.outputs.upload_name }}
 
     steps:
       - name: Check out source
@@ -33,31 +35,27 @@ jobs:
       - name: Show toolchain
         run: |
           sw_vers
+          uname -m
           xcodebuild -version
           swift --version
 
       - name: Run tests
         run: bash scripts/test.sh
 
-      - name: Build app bundle
+      - name: Build universal app bundle
         run: bash scripts/build-app.sh
 
-      - name: Validate app bundle
+      - name: Validate universal bundle
+        run: bash scripts/validate-app.sh
+
+      - name: Run packaged app verification
         shell: bash
         run: |
           set -euo pipefail
           app="dist/息间.app"
-          test -x "$app/Contents/MacOS/Still"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist"
-          plutil -lint "$app/Contents/Info.plist"
-          codesign --verify --strict --verbose=2 "$app"
-          lipo -archs "$app/Contents/MacOS/Still"
-          test -s "$app/Contents/Resources/StillPose.mlmodel"
-          expected_model="$(plutil -extract modelSHA256 raw "$app/Contents/Resources/PoseModelSource.json")"
-          actual_model="$(shasum -a 256 "$app/Contents/Resources/StillPose.mlmodel" | awk '{print $1}')"
-          test "$expected_model" = "$actual_model"
+          "$app/Contents/MacOS/Still" --verify-bundle | tee dist/verify-build.json
+          test "$(plutil -extract runtimeArchitecture raw dist/verify-build.json)" = "arm64"
+          test "$(plutil -extract minimumSystemVersion raw dist/verify-build.json)" = "13.0"
 
       - name: Package app and checksum
         id: package
@@ -67,6 +65,7 @@ jobs:
           app="dist/息间.app"
           version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist")"
           build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist")"
+          minimum="$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$app/Contents/Info.plist")"
           arch="$(lipo -archs "$app/Contents/MacOS/Still" | tr ' ' '-')"
           artifact="dist/Still-${version}-${build}-${arch}-macos.zip"
 
@@ -81,7 +80,8 @@ jobs:
             "displayName": "息间",
             "version": "$version",
             "build": "$build",
-            "architectures": "$arch",
+            "minimumSystemVersion": "$minimum",
+            "architectures": ["arm64", "x86_64"],
             "commit": "$GITHUB_SHA",
             "runner": "$ImageOS-$ImageVersion",
             "signature": "ad-hoc",
@@ -89,65 +89,133 @@ jobs:
           }
           EOF
 
-          artifact_name="$(basename "$artifact")"
-          {
-            echo "artifact_name=$artifact_name"
-            echo "artifact_sha256=$digest"
-          } >> "$GITHUB_OUTPUT"
-
-          {
-            echo "## Still macOS build"
-            echo
-            echo "- Version: \`$version ($build)\`"
-            echo "- Architectures: \`$arch\`"
-            echo "- Commit: \`$GITHUB_SHA\`"
-            echo "- Archive: \`$artifact_name\`"
-            echo "- SHA-256: \`$digest\`"
-            echo "- Distribution: ad-hoc signed, not notarized"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload macOS app
-        uses: actions/upload-artifact@v4
-        with:
-          name: Still-macOS-${{ github.run_number }}
-          path: |
-            dist/Still-*.zip
-            dist/Still-*.zip.sha256
-            dist/artifact-manifest.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Publish versioned GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          app="dist/息间.app"
-          version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app/Contents/Info.plist")"
-          build="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app/Contents/Info.plist")"
-          arch="$(lipo -archs "$app/Contents/MacOS/Still" | tr ' ' '-')"
           {
             echo "## 息间 ${version} (${build})"
             echo
-            echo "- macOS 13 或更高版本"
-            echo "- 架构：\`${arch}\`"
+            echo "- macOS ${minimum} 或更高版本"
+            echo "- 通用架构：\`arm64 + x86_64\`，支持 Apple Silicon 与 Intel Mac"
             echo "- 构建提交：\`${GITHUB_SHA}\`"
+            echo "- 流水线已分别验证 macOS 14 Apple Silicon 与 Intel 原生启动"
             echo "- 附件使用 ad-hoc 签名，尚未使用 Developer ID 签名，也未通过 Apple 公证"
             echo
             echo "### SHA-256"
             echo
             echo '```'
-            cat dist/Still-*.zip.sha256
+            cat "$artifact.sha256"
             echo '```'
           } > dist/release-notes.md
 
+          {
+            echo "## Still universal macOS build"
+            echo
+            echo "- Version: \`$version ($build)\`"
+            echo "- Minimum macOS: \`$minimum\`"
+            echo "- Architectures: \`$arch\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Archive: \`$(basename "$artifact")\`"
+            echo "- SHA-256: \`$digest\`"
+            echo "- Distribution: ad-hoc signed, not notarized"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "upload_name=Still-universal"
+            echo "artifact_name=$(basename "$artifact")"
+            echo "artifact_sha256=$digest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload universal app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.upload_name }}
+          path: |
+            dist/Still-*.zip
+            dist/Still-*.zip.sha256
+            dist/artifact-manifest.json
+            dist/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+
+  runtime-arm64:
+    name: Verify macOS 14 Apple Silicon runtime
+    needs: build
+    runs-on: macos-14
+    timeout-minutes: 15
+
+    steps:
+      - name: Download packaged app
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.upload_name }}
+          path: runtime
+
+      - name: Launch packaged arm64 slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "arm64"
+          archive="$(find runtime -maxdepth 1 -name 'Still-*.zip' -print -quit)"
+          mkdir expanded
+          ditto -x -k "$archive" expanded
+          app="$(find expanded -maxdepth 1 -name '息间.app' -print -quit)"
+          codesign --verify --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/Still" --verify-bundle | tee runtime.json
+          test "$(plutil -extract runtimeArchitecture raw runtime.json)" = "arm64"
+          test "$(plutil -extract minimumSystemVersion raw runtime.json)" = "13.0"
+          echo "Verified native arm64 startup on $(sw_vers -productVersion)." >> "$GITHUB_STEP_SUMMARY"
+
+  runtime-x86_64:
+    name: Verify Intel runtime
+    needs: build
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+
+    steps:
+      - name: Download packaged app
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.upload_name }}
+          path: runtime
+
+      - name: Launch packaged x86_64 slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          archive="$(find runtime -maxdepth 1 -name 'Still-*.zip' -print -quit)"
+          mkdir expanded
+          ditto -x -k "$archive" expanded
+          app="$(find expanded -maxdepth 1 -name '息间.app' -print -quit)"
+          codesign --verify --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/Still" --verify-bundle | tee runtime.json
+          test "$(plutil -extract runtimeArchitecture raw runtime.json)" = "x86_64"
+          test "$(plutil -extract minimumSystemVersion raw runtime.json)" = "13.0"
+          echo "Verified native x86_64 startup on $(sw_vers -productVersion)." >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, runtime-arm64, runtime-x86_64]
+    runs-on: macos-15
+    timeout-minutes: 10
+
+    steps:
+      - name: Download verified release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.upload_name }}
+          path: dist
+
+      - name: Create or update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" \
               --verify-tag \
               --latest \
-              --title "息间 ${version}" \
+              --title "息间 $(plutil -extract version raw dist/artifact-manifest.json)" \
               --notes-file dist/release-notes.md
           fi
 

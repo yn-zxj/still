@@ -5,6 +5,7 @@ import StillCore
 @main
 struct StillMain {
     @MainActor static func main() {
+        if ProcessInfo.processInfo.arguments.contains("--verify-bundle") { exit(BundleVerification.run()) }
         let application = NSApplication.shared
         let delegate = AppDelegate()
         application.delegate = delegate
