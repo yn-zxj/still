@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.4.0 / build 7（本轮待发布）
+## 当前实现：0.4.0 / build 7（已发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -51,7 +51,7 @@ docs/               本项目档案
 
 默认构建缓存为 `.build/`，应用输出为 `dist/息间.app`，两者忽略提交。支持 `STILL_BUILD_DIR` / `STILL_APP_DIR` 覆盖。本机原有应用仍在上层 `Still-macOS/`，不自动替换正在运行的副本。
 
-构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.3.3` 发布在私有仓库 Release，不是公开分发版本。
+构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.4.0` 发布在私有仓库 Release，不是公开分发版本。
 
 GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 88 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
@@ -238,3 +238,10 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 紧凑提醒原生诊断实测该段文案 401×37pt；同时发现 `isFloatingPanel=true` 会重置窗口层级，已改为先设浮窗再设 screenSaver 最终层级，并优先使用主窗口所在屏幕。最终普通应用 CGWindowList 实测可见窗口为 401×37pt、level 1000；主窗口快照不包含非激活面板，因此以原生窗口状态复核尺寸/层级。
 - 尚未完成真实私有令牌的下载/替换升级、临床误报漏报数据集、长时间能耗或 Intel 硬件验收；网络及下载行为有模拟测试。GitHub 标签发布与附件审计结果另行补充。
 - 具体方法、供应链与验证边界见 [坐姿与更新](POSTURE_AND_UPDATES.md)。
+
+#### 0.4.0 发布与附件审计
+
+- 实现提交 `e5946804c65ade87414a90366340e245fd4ce7dc`、标签 `v0.4.0` 已推送。主分支 run `40987018626` 与标签 run `40987026598` 均成功；云端运行 88 项测试，并完成 Bundle/签名/模型摘要校验及自动发布。仓库复核仍为 PRIVATE。
+- Release：https://github.com/yn-zxj/still/releases/tag/v0.4.0 。三个正式附件为 `Still-0.4.0-7-arm64-macos.zip`、同名 `.sha256`、`artifact-manifest.json`，非草稿、非预发布。
+- 已重新下载 Release：ZIP SHA-256 `70f857037b556af58fe0bcffa0f7f53b91970119e284721358441c0fe6873abb` 与侧车和 GitHub 摘要一致，压缩完整；Bundle 为 `local.still.app`、0.4.0 (7)、arm64，严格签名验证通过。模型摘要与来源记录相符，Apache-2.0 许可证齐全。包内仅应用程序、图标、模型及许可，没有课程媒体、账号、图像或健康记录。
+- 本机最终普通应用已重新打开，保留原数据及暂停摄像头状态；没有运行下载的审计副本。产物仍为 ad-hoc 签名，尚未 Developer ID/公证；私有更新令牌实机下载、手动替换升级、Intel 与临床准确性不在已验收范围。
