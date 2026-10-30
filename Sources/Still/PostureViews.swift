@@ -93,6 +93,7 @@ struct PostureView: View {
                 cue("肩线变化", value: shouldersAvailable ? delta(monitor.lastSample?.shoulderRoll, monitor.baseline?.shoulderRoll, suffix: "°") : "—", icon: "person-standing")
                 cue("头肩比例变化", value: ratioText, icon: "focus")
             }
+            reminderRules
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 15) {
                     LineIcon(systemName: "bell", size: 20).foregroundStyle(Palette.accent)
@@ -107,7 +108,7 @@ struct PostureView: View {
                 }
                 Divider().overlay(Palette.line)
                 HStack {
-                    Text(model.settings.posturePlayful ? "“屏幕不会跑，脖子不用先到场。”" : "“放松一下，回到舒服的位置。”")
+                    Text("12 条轻松吐槽 · 4 条温柔提醒\n预览会轮换四类动作，不影响真实检测与冷却。")
                         .font(.system(size: 14)).foregroundStyle(Palette.secondary)
                     Spacer()
                     Button("预览提醒") { monitor.previewAlert() }.buttonStyle(SettingsButtonStyle())
@@ -119,8 +120,57 @@ struct PostureView: View {
          .onDisappear { monitor.setPreviewVisible(false) }
     }
     private var shouldersAvailable: Bool { monitor.lastSample?.hasShoulders == true && monitor.baseline?.hasShoulders == true }
+    private var reminderFeedback: String {
+        let assessment = monitor.assessment
+        if assessment.state == .unavailable { return "识别暂不可用 · 不累积提醒时间" }
+        if assessment.cooldownRemaining > 0 { return "提醒冷却中 · 还剩 \(Int(ceil(assessment.cooldownRemaining))) 秒" }
+        if assessment.state == .deviation { return "偏离累计 \(Int(assessment.deviationSeconds)) / 12 秒，达到后提醒" }
+        return "尚未达到提醒阈值 · 正常移动不会立即提醒"
+    }
+    private var reminderRules: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 18) {
+                Text("什么时候会提醒？").font(.system(size: 16, weight: .semibold))
+                Spacer()
+                if monitor.running && monitor.baseline != nil {
+                    Text(reminderFeedback).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if monitor.assessment.state == .deviation && monitor.assessment.cooldownRemaining == 0 {
+                ProgressView(value: min(1, monitor.assessment.deviationSeconds / 12)).tint(Palette.accent)
+            }
+            Text("相对你校准时的自然坐姿，同一类偏离累计 12 秒才提醒，回正后清零。提醒展示 5 秒，之后冷却 60 秒。")
+                .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+            if let lastReminder = monitor.lastReminder {
+                Text(lastReminder).font(.system(size: 12)).foregroundStyle(Palette.secondary)
+            }
+            ruleRow("头部侧倾", detail: "左右歪头变化 > 12°", needsShoulders: false)
+            Divider().overlay(Palette.line)
+            ruleRow("肩线倾斜", detail: "左右肩线角度变化 > 10°", needsShoulders: true)
+            Divider().overlay(Palette.line)
+            ruleRow("持续低头", detail: shouldersAvailable
+                ? "低头变化 > 12°，且头到肩线的距离 / 肩宽比下降 > 0.12"
+                : "仅头部模式：低头角度变化 > 15°", needsShoulders: false)
+            Divider().overlay(Palette.line)
+            ruleRow("疑似探头", detail: "头部大小 / 肩宽比增加 > 20%，并满足任一项：低头变化 > 10°，或头肩距离 / 肩宽比下降 > 0.10", needsShoulders: true)
+            Text("转头 ≥ 20°、俯仰 ≥ 40°、面部遮挡或多人入镜时暂停判断。识别丢失不超过 1.5 秒时保留进度，但不计时；更久则清零。正面镜头不能判断所有不良坐姿。")
+                .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+        }.card(padding: 22)
+    }
+    private func ruleRow(_ title: String, detail: String, needsShoulders: Bool) -> some View {
+        let state = !monitor.running ? "未监测" : monitor.baseline == nil ? "待校准"
+            : monitor.lastSample == nil ? "等待识别" : needsShoulders && !shouldersAvailable ? "肩部不可用" : "检测中"
+        return HStack(alignment: .top, spacing: 18) {
+            Text(title).font(.system(size: 14, weight: .medium)).frame(width: 84, alignment: .leading)
+            Text(detail).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+            Text(state).font(.system(size: 12, weight: .medium)).foregroundStyle(state == "检测中" ? Palette.accent : Palette.secondary)
+                .frame(width: 76, alignment: .trailing)
+        }
+    }
     private var statusDetail: String {
-        if monitor.assessment.state == .deviation { return "已持续 \(Int(monitor.assessment.deviationSeconds)) 秒。放松一下，换个舒服的姿势。" }
+        if monitor.assessment.state == .deviation { return "偏离已累计 \(Int(monitor.assessment.deviationSeconds)) 秒。放松一下，换个舒服的姿势。" }
 
         if monitor.running && monitor.lastSample != nil && monitor.lastSample?.hasShoulders == false {
             if monitor.assessment.state == .calibrating { return "正在校准头部姿势。肩部识别不足，先启用歪头与低头监测；保持自然坐姿 4 秒。" }
@@ -130,7 +180,6 @@ struct PostureView: View {
         if monitor.baseline?.hasShoulders == false { return "头部校准已保留，肩部识别稳定后会自动补充参照，无需从头校准。" }
 
         if monitor.assessment.state == .calibrating { return "保持稳定，坐姿变化或识别不清会重新计时。校准会在本次监测中使用。" }
-        if monitor.assessment.state == .deviation { return "已持续 \(Int(monitor.assessment.deviationSeconds)) 秒。先放松肩颈，试着换个姿势。" }
         if monitor.assessment.state == .aligned { return "关闭窗口后仍会后台监测；休息、锁屏或睡眠时暂停。" }
         if monitor.assessment.state == .unavailable { return "光线、遮挡、转头或多人入镜会暂停判断，不会算作不良坐姿。" }
         return "先用自然坐姿建立参照。前后移动和短暂离开会保留校准；镜头角度明显改变时，再手动校准。"
@@ -221,11 +270,13 @@ private struct PostureCameraPreview: NSViewRepresentable {
 final class PostureAlertController {
     private var panel: NSPanel?
     private var dismissTask: Task<Void, Never>?
+    private var rotation = PostureMessageRotation()
+    private var previewRotation = PostureMessageRotation()
     var appearance: NSAppearance? { didSet { panel?.appearance = appearance } }
     func show(issue: PostureIssue, playful: Bool, preview: Bool = false) {
         close()
         guard let screen = NSApp.keyWindow?.screen ?? NSApp.mainWindow?.screen ?? NSScreen.main else { return }
-        let message = playful ? issue.playfulMessage : "放松肩颈，换个舒服的姿势。靠回椅背，抬眼看看屏幕。"
+        let message = preview ? previewRotation.message(for: issue, playful: playful) : rotation.message(for: issue, playful: playful)
         let maxWidth = min(860, screen.visibleFrame.width - 48)
         let textSize = (message as NSString).boundingRect(with: NSSize(width: maxWidth - 32, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: NSFont.systemFont(ofSize: 14, weight: .medium)])

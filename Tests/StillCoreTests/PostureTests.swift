@@ -179,6 +179,78 @@ struct PostureTests {
         engine.reset()
         #expect(engine.baseline == nil)
     }
+    @Test func aSecondFluctuatingIssueCannotResetPersistentTilt() {
+        var engine = calibrated()
+        for t in 9...21 {
+            var s = sample(Double(t)); s.headRoll = 20; s.shoulderRoll = t % 2 == 0 ? 15 : 0
+            _ = engine.ingest(s)
+        }
+        #expect(engine.assessment.shouldAlert)
+        #expect(engine.assessment.alertIssue == .headTilt)
+        #expect(engine.assessment.deviationSeconds == 12)
+    }
+    @Test func reminderMustDescribeTheMatureIssueInsteadOfANewHigherPriorityIssue() {
+        var engine = calibrated()
+        for t in 9...20 { var s = sample(Double(t)); s.shoulderRoll = 15; _ = engine.ingest(s) }
+        var s = sample(21); s.shoulderRoll = 15; s.headRoll = 20
+        let result = engine.ingest(s)
+        #expect(result.shouldAlert)
+        #expect(result.issues.first == .headTilt)
+        #expect(result.alertIssue == .shoulderTilt)
+        #expect(result.cooldownRemaining == 60)
+        s.time = 22
+        #expect(engine.ingest(s).cooldownRemaining == 59)
+    }
+    @Test func shortUnknownFramePausesEvidenceWithoutCountingTheGap() {
+        var engine = calibrated()
+        for t in 9...18 { var s = sample(Double(t)); s.headRoll = 20; _ = engine.ingest(s) }
+        #expect(engine.assessment.deviationSeconds == 9)
+        #expect(!engine.ingest(nil, at: 18.5).shouldAlert)
+        var s = sample(19); s.headRoll = 20
+        #expect(engine.ingest(s).deviationSeconds == 9)
+        for t in 20...21 { s.time = Double(t); #expect(!engine.ingest(s).shouldAlert) }
+        s.time = 22
+        #expect(engine.ingest(s).shouldAlert)
+    }
+    @Test func repeatedUnknownFramesCannotKeepOldEvidenceAlive() {
+        var engine = calibrated()
+        for t in 9...19 { var s = sample(Double(t)); s.headRoll = 20; _ = engine.ingest(s) }
+        for n in 1...8 { #expect(!engine.ingest(nil, at: 19 + Double(n) * 0.5).shouldAlert) }
+        var s = sample(23.5); s.headRoll = 20
+        #expect(engine.ingest(s).deviationSeconds == 0)
+        #expect(engine.baseline != nil)
+    }
+    @Test func missingShouldersPauseOnlyShoulderEvidenceAndCannotTriggerAnAlert() {
+        var engine = calibrated()
+        for t in 9...20 { var s = sample(Double(t)); s.shoulderRoll = 15; _ = engine.ingest(s) }
+        var s = sample(20.5); s.hasShoulders = false; s.shoulderWidth = 0
+        #expect(!engine.ingest(s).shouldAlert)
+        s = sample(21); s.shoulderRoll = 15
+        #expect(engine.ingest(s).deviationSeconds == 11)
+        s.time = 22
+        #expect(engine.ingest(s).alertIssue == .shoulderTilt)
+    }
+    @Test func differentShortMovementsAndRecoveryCannotCombineIntoAnAlert() {
+        var engine = calibrated()
+        for t in 9...16 { var s = sample(Double(t)); s.headRoll = 20; #expect(!engine.ingest(s).shouldAlert) }
+        for t in 17...24 { var s = sample(Double(t)); s.shoulderRoll = 15; #expect(!engine.ingest(s).shouldAlert) }
+        _ = engine.ingest(sample(25))
+        var s = sample(26); s.shoulderRoll = 15
+        #expect(engine.ingest(s).deviationSeconds == 0)
+    }
+    @Test func allReminderTypesHaveDistinctRotatingAndGentleCopy() {
+        var rotation = PostureMessageRotation()
+        var playful = Set<String>(), gentle = Set<String>()
+        for issue in PostureIssue.allCases {
+            let messages = (0..<3).map { _ in rotation.message(for: issue, playful: true) }
+            #expect(Set(messages).count == 3)
+            #expect(rotation.message(for: issue, playful: true) == messages.first)
+            playful.formUnion(messages)
+            gentle.insert(rotation.message(for: issue, playful: false))
+        }
+        #expect(playful.count == 12)
+        #expect(gentle.count == 4)
+    }
     @Test func featureSettingsMigrateAndPersistWithoutEnablingCamera() throws {
         let old = try JSONDecoder().decode(MonitorSettings.self, from: Data("{}".utf8))
         #expect(!old.postureEnabled)

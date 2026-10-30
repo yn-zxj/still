@@ -139,6 +139,7 @@ final class PostureMonitor: ObservableObject {
     @Published private(set) var cameraName = "Mac 摄像头"
     @Published private(set) var assessment = PostureEngine().assessment
     @Published private(set) var lastSample: PostureSample?
+    @Published private(set) var lastReminder: String?
     let camera = PostureCamera()
     private let defaults: UserDefaults
     private var engine = PostureEngine()
@@ -150,8 +151,12 @@ final class PostureMonitor: ObservableObject {
     private var lastFrameAt: Date?
     private var observers: [NSObjectProtocol] = []
     var baseline: PostureSample? { engine.baseline }
-    var onPreview: (() -> Void)?
-    func previewAlert() { onPreview?() }
+    private var previewIndex = 0
+    var onPreview: ((PostureIssue) -> Void)?
+    func previewAlert() {
+        let issues = PostureIssue.allCases
+        onPreview?(issues[previewIndex % issues.count]); previewIndex += 1
+    }
     var onAlert: ((PostureIssue) -> Void)?
     var session: AVCaptureSession { camera.session }
 
@@ -179,7 +184,7 @@ final class PostureMonitor: ObservableObject {
         staleTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.running, let last = self.lastFrameAt, Date().timeIntervalSince(last) > 4 else { return }
-                self.assessment = self.engine.ingest(nil); self.lastSample = nil; self.overlay = .empty
+                self.assessment = self.engine.ingest(nil, at: ProcessInfo.processInfo.systemUptime); self.lastSample = nil; self.overlay = .empty
             }
         }
     }
@@ -226,8 +231,11 @@ final class PostureMonitor: ObservableObject {
     private func receive(id: UUID, sample: PostureSample?) {
         guard self.id == id, enabled, available, !paused, running else { return }
         lastFrameAt = Date(); lastSample = sample?.usable == true ? sample : nil
-        assessment = engine.ingest(sample)
-        if assessment.shouldAlert, let issue = assessment.issues.first { onAlert?(issue) }
+        assessment = engine.ingest(sample, at: ProcessInfo.processInfo.systemUptime)
+        if assessment.shouldAlert, let issue = assessment.alertIssue {
+            lastReminder = "最近提醒：\(issue.title) · \(Date().formatted(.dateTime.hour().minute().second()))"
+            onAlert?(issue)
+        }
     }
     func shutdown() { staleTimer?.invalidate(); camera.stop() }
     var statusTitle: String {

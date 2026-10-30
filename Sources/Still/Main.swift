@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.hideReminder = { [weak self] in self?.reminders?.dismissIfDue() }
         model.refreshMenu = { [weak self] in self?.refreshStatusItem() }
         model.posture.onAlert = { [weak self] issue in self?.presentPostureAlert(issue) }
-        model.posture.onPreview = { [weak self] in self?.presentPostureAlert(.possibleForwardLean, preview: true) }
+        model.posture.onPreview = { [weak self] issue in self?.presentPostureAlert(issue, preview: true) }
         applyWindowAppearance()
         showMainWindow()
         refreshStatusItem()
