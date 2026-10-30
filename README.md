@@ -67,7 +67,7 @@ Sources/StillCore/
   ApplicationInsights.swift    应用去向汇总、类别与跨日统计
   AgentActivity.swift          HAPI 协议、会话归并和 Agent 时间统计
   AgentActivityStore.swift     Agent 会话摘要持久化
-  DayTimelineWindow.swift      截止当前时刻的日时间轴坐标
+  DayTimelineWindow.swift      固定全天坐标、数据裁剪到当前时刻
   UsageEngine.swift            可控时间的纯计时状态机
   UsageRepository.swift        Core Data 本地数据库
 Sources/Still/

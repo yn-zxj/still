@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.5.3 / build 14（本轮验证中）
+## 当前实现：0.5.3 / build 14（已发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -30,7 +30,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 | Agent 时间 | HAPI 0.30+ 只读同步 `hapi.activity.v1`；本机/远程机器、会话去重、等待扣除、墙钟并集；Agent 摘要 31 天本地保存 |
 | 提醒 | 全屏、迷你窗、系统通知；独立预览；延后、跳过、提前结束；暂停提醒与暂停统计分开 |
 | 疲劳 | 0–100% 计时估算；工作增加、休息降低；并非医学测量 |
-| UI | 雾紫/薄荷双主题、浅色/深色/跟随系统、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果、截止当前时刻的时间轴、可隐藏 Dock 图标 |
+| UI | 雾紫/薄荷双主题、浅色/深色/跟随系统、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果、固定 0–24 时且未来留白的时间轴、可隐藏 Dock 图标 |
 | 持久化 | `~/Library/Application Support/Still/usage.sqlite`；UserDefaults `local.still.app` |
 | 生命周期 | 菜单栏常驻、关闭窗口继续统计、单实例保护、可选登录启动 |
 | 更新 | GitHub Release 检查、每日自动检查、Keychain 私有只读令牌、架构匹配下载及 SHA-256 校验，手动替换安装 |
@@ -55,7 +55,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。发布产物为 arm64 + x86_64 通用二进制，使用本地临时签名，尚无 Developer ID 签名或公证。此前 `v0.4.2` 虽然声明 macOS 13+，但实际只有 arm64；Intel 用户应改用 0.4.3 通用版。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 121 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 124 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -339,3 +339,9 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 新增阅读模式不可用/唤醒间隔、初装 7/28 天平均、细粒度曲线与未来留白测试。实际睡眠/息屏与多屏唤醒还需运行验收；自动化引擎样本不能替代真机电源测试。
 
 - 本地 124 项测试通过（87 核心 + 37 资源/网络/模型）；universal 构建、两个切片 macOS 13.0、严格签名及模型校验通过。普通 dist 应用已检查：7 天和 28 天均显示“按已记录的 2 天计算（含今天）”，快捷面板显示 00/06/12/18/24 固定轴、5 分钟波峰波谷和未来空白。尚未主动让用户电脑休眠/锁屏做电源切换验收。
+
+#### 0.5.3 发布审计
+
+- 标签 v0.5.3 对应 3f44995；标签 run 41020565986 的测试/通用构建、macOS 14 arm64、Intel 原生启动和发布全部成功。
+- 正式附件 Still-0.5.3-14-x86_64-arm64-macos.zip 已下载复核；SHA-256 为 5c34e670b919fa5ab7677551cd245217fcd8d257b3f324220f2f0ca018351eb6，与侧车一致；清单版本/构建/提交匹配。两个切片最低 macOS 13.0，严格签名、模型摘要和 arm64 --verify-bundle 通过。
+- 本地普通应用已更新为 0.5.3；真实息屏、锁屏/合盖、多屏唤醒仍待验收，当前证据仅覆盖代码补强、自动化引擎边界和普通亮屏界面。历史误计数据保留，不伪造自动修复。
