@@ -165,6 +165,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.deliverNotification(presentation)
             return
         }
+        // Opening a visual break reminder begins the break immediately. startRest()
+        // re-enters this method as .resting and owns the countdown from that point.
+        if presentation == .due {
+            model.startRest()
+            return
+        }
         if reminders == nil {
             reminders = ReminderWindowController(model: model)
             reminders?.applyAppearance(model.settings.appearanceTheme.appearance)

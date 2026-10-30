@@ -40,6 +40,12 @@ final class ReminderWindowController {
         for panel in panels { panel.level = Self.windowLevel; panel.orderFrontRegardless() }
     }
     func present(_ presentation: RestPresentation, style: ReminderStyle) {
+        // A completed, automatically started break should dismiss its reminder
+        // instead of replacing the countdown with a second completion panel.
+        if presentation == .completed, current == .resting, content.course == nil {
+            close()
+            return
+        }
         if presentation == .due && (current == .resting || current == .preview || content.course != nil) { return }
         let fresh = current == nil
         close()
