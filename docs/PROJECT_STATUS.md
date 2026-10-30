@@ -377,3 +377,11 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 普通应用实际播放 B 站视频至 00:05，画面正常推进。点击进度条中心跳到 03:32；暂停后 `→` 从 31.236 秒变为 36.236 秒，`←` 回到 31.236 秒；空格切换播放/暂停；滚轮滚动页面后进度保持 31.236 秒不变。
 - 编辑页底部删除按钮和“删除课程”二次确认可见，文案明确说明目录条目与已导入视频文件的保留关系；破坏性删除动作尚待用户确认后执行。
 - 最新源码仍为本地 133 项自动化通过（87 核心 + 46 资源/网络/模型）；重建后的普通 `dist/息间.app` 为 arm64 + x86_64、两切片最低 macOS 13.0、严格签名与模型校验通过。
+
+#### 0.6.0 发布审计
+
+- 实现提交 `f2c5b08e9eb8ab587de7e7f8cc1b4945d1156bf1`；公开 main run `41041667442` 和标签 run `41041675991` 均完整通过。标签流水线完成 133 项测试、universal 构建、macOS 14 Apple Silicon 原生启动、Intel 原生启动和 Release 发布。
+- 正式 Release：[v0.6.0](https://github.com/yn-zxj/still/releases/tag/v0.6.0)。附件为 `Still-0.6.0-15-x86_64-arm64-macos.zip`、侧车 SHA-256 和 `artifact-manifest.json`，均状态为 uploaded。
+- 已重新匿名下载并审计正式附件：ZIP 完整；SHA-256 `490ab18d1613945cd127c97576a4370f1cec7f7ab2e07a42f8ae2ca99cab2877` 与侧车一致；Bundle `local.still.app` 0.6.0 (15)，架构 `x86_64 arm64`，两个切片最低 macOS 13.0，严格签名检查通过。
+- 发布附件中的 Lightweight OpenPose 模型摘要 `37ef5e3e283ad0d18c6bb851039ac22b83d968ad696c0b497b0264f27cabaa01` 与来源清单一致；OpenPose、Lucide 和 media-parser 许可证均存在。包内未发现课程视频、使用数据库、`AgentActivity.json` 或截图。
+- 当前仍是 ad-hoc 签名，未使用 Developer ID 或 Apple 公证。CI 出现 `actions/checkout@v4`、`actions/upload-artifact@v4`、`actions/download-artifact@v4` 的 Node.js 20 将淘汰提示，但不影响本次运行；下一轮流水线维护应升级到兼容 Node.js 24 的 action 主版本并重新审计。
