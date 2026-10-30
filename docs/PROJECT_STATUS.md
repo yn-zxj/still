@@ -322,3 +322,11 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 系统通知模式仍遵守系统通知交互，不在用户点击通知前强制开始休息。
 - 正常 `dist/息间.app` 使用 5 秒测试休息验证：弹窗出现后无需点击即显示 `00:01`，倒计时结束后窗口自动关闭。
 - 同一正常应用的 5 分钟提醒中选择“眼部疲劳放松”后，提醒倒计时被课程接管，界面显示课程 `04:11` 播放进度以及暂停、结束跟练控制。
+
+#### 0.5.2 发布与附件审计
+
+- 实现提交 `557e0ce`、标签 `v0.5.2` 已推送；主分支 run `41001280807` 与标签 run `41001288030` 均成功。macOS 14 arm64 与 `macos-15-intel` 原生 runner 均通过打包应用启动/模型检查，仓库复核仍为 PRIVATE。
+- Release：https://github.com/yn-zxj/still/releases/tag/v0.5.2 。正式附件为 `Still-0.5.2-13-x86_64-arm64-macos.zip`、`.sha256` 与 `artifact-manifest.json`；Release notes 已包含 `docs/releases/0.5.2.md` 内容。
+- 已重新下载 Release 审计：ZIP 大小 `11,148,207` 字节，SHA-256 `810ed48c76eee7e2b3c8f97e268bc7770c6a6b217050ae997d08c425ca26d7ef` 与侧车一致；压缩完整。
+- Bundle 为 `local.still.app`、0.5.2 (13)、`x86_64 arm64`；两个切片最低系统均为 macOS 13.0，严格签名、OpenPose 模型摘要与许可证检查通过。清单提交为 `557e0ce49b63bbceb07d7dd93a20d676a7669f82`。
+- 产物仍为 ad-hoc 签名，未使用 Developer ID 或 Apple 公证。HAPI 是由 `tiann/hapi` 提供的第三方二进制，通过官方 SHA-256 校验，不等同于息间应用包签名；真实 Hub 登录和跨机器时间仍待用户配置后验收。
