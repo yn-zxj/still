@@ -31,6 +31,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
             if !settings.remindersEnabled || oldValue.reminderStyle != settings.reminderStyle { clearDueNotification() }
             if oldValue.appearanceTheme != settings.appearanceTheme { applyAppearance?() }
+            if oldValue.postureThresholds != settings.postureThresholds { posture.updateThresholds(settings.postureThresholds) }
             if oldValue.postureEnabled != settings.postureEnabled {
                 posture.configure(enabled: settings.postureEnabled, requestPermission: settings.postureEnabled)
                 if !settings.postureEnabled && page == .posture { page = .settings }
@@ -138,6 +139,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             refreshNotificationStatus()
         }
         monitor.onChange = { [weak self] in self?.tick(); self?.save() }
+        posture.updateThresholds(initial.postureThresholds)
         posture.configure(enabled: initial.postureEnabled)
         if initial.automaticUpdateChecks && !isUITest { updater.checkAutomaticallyIfNeeded() }
         tick()

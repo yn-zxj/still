@@ -6,6 +6,7 @@ import StillCore
 struct PostureView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var monitor: PostureMonitor
+    @StateObject private var thresholdEdit = PostureThresholdEditingState()
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
@@ -99,7 +100,7 @@ struct PostureView: View {
                     LineIcon(systemName: "bell", size: 20).foregroundStyle(Palette.accent)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("提醒的语气").font(.system(size: 14, weight: .medium))
-                        Text("持续偏离 12 秒后提醒；顶部居中展示 5 秒，至少间隔 1 分钟。")
+                        Text("偏离累计 \(Int(thresholds.sustainSeconds)) 秒后提醒；顶部展示 \(Int(thresholds.displaySeconds)) 秒，冷却 \(Int(thresholds.cooldownSeconds)) 秒。")
                             .font(.system(size: 12)).foregroundStyle(Palette.secondary)
                     }
                     Spacer()
@@ -120,11 +121,12 @@ struct PostureView: View {
          .onDisappear { monitor.setPreviewVisible(false) }
     }
     private var shouldersAvailable: Bool { monitor.lastSample?.hasShoulders == true && monitor.baseline?.hasShoulders == true }
+    private var thresholds: PostureThresholds { model.settings.postureThresholds }
     private var reminderFeedback: String {
         let assessment = monitor.assessment
         if assessment.state == .unavailable { return "识别暂不可用 · 不累积提醒时间" }
         if assessment.cooldownRemaining > 0 { return "提醒冷却中 · 还剩 \(Int(ceil(assessment.cooldownRemaining))) 秒" }
-        if assessment.state == .deviation { return "偏离累计 \(Int(assessment.deviationSeconds)) / 12 秒，达到后提醒" }
+        if assessment.state == .deviation { return "偏离累计 \(Int(assessment.deviationSeconds)) / \(Int(thresholds.sustainSeconds)) 秒，达到后提醒" }
         return "尚未达到提醒阈值 · 正常移动不会立即提醒"
     }
     private var reminderRules: some View {
@@ -136,37 +138,72 @@ struct PostureView: View {
                     Text(reminderFeedback).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.accent)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                Button("恢复默认") {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                    model.settings.postureThresholds = PostureThresholds()
+                    thresholdEdit.resetID = UUID(); thresholdEdit.notice = "已恢复默认阈值"
+                }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Palette.accent)
             }
             if monitor.assessment.state == .deviation && monitor.assessment.cooldownRemaining == 0 {
-                ProgressView(value: min(1, monitor.assessment.deviationSeconds / 12)).tint(Palette.accent)
+                ProgressView(value: min(1, monitor.assessment.deviationSeconds / thresholds.sustainSeconds)).tint(Palette.accent)
             }
-            Text("相对你校准时的自然坐姿，同一类偏离累计 12 秒才提醒，回正后清零。提醒展示 5 秒，之后冷却 60 秒。")
-                .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
             if let lastReminder = monitor.lastReminder {
                 Text(lastReminder).font(.system(size: 12)).foregroundStyle(Palette.secondary)
             }
-            ruleRow("头部侧倾", detail: "左右歪头变化 > 12°", needsShoulders: false)
-            Divider().overlay(Palette.line)
-            ruleRow("肩线倾斜", detail: "左右肩线角度变化 > 10°", needsShoulders: true)
-            Divider().overlay(Palette.line)
-            ruleRow("持续低头", detail: shouldersAvailable
-                ? "低头变化 > 12°，且头到肩线的距离 / 肩宽比下降 > 0.12"
-                : "仅头部模式：低头角度变化 > 15°", needsShoulders: false)
-            Divider().overlay(Palette.line)
-            ruleRow("疑似探头", detail: "头部大小 / 肩宽比增加 > 20%，并满足任一项：低头变化 > 10°，或头肩距离 / 肩宽比下降 > 0.10", needsShoulders: true)
-            Text("转头 ≥ 20°、俯仰 ≥ 40°、面部遮挡或多人入镜时暂停判断。识别丢失不超过 1.5 秒时保留进度，但不计时；更久则清零。正面镜头不能判断所有不良坐姿。")
+            VStack(alignment: .leading, spacing: 16) {
+                PostureRuleFlow {
+                    Text("相对你校准时的自然坐姿，").frame(height: 28)
+                    blank("同一类偏离累计", .sustainSeconds, "秒才提醒，回正后清零。")
+                    blank("提醒展示", .displaySeconds, "秒，")
+                    blank("之后冷却", .cooldownSeconds, "秒。")
+                }
+                ruleRow("头部侧倾", needsShoulders: false) {
+                    blank("左右歪头变化 >", .headTiltDegrees, "°")
+                }
+                Divider().overlay(Palette.line)
+                ruleRow("肩线倾斜", needsShoulders: true) {
+                    blank("左右肩线角度变化 >", .shoulderTiltDegrees, "°")
+                }
+                Divider().overlay(Palette.line)
+                ruleRow("持续低头", needsShoulders: false) {
+                    blank("有肩部：低头变化 >", .loweredPitchDegrees, "°，")
+                    blank("且头肩距离 / 肩宽比下降 >", .loweredHeadDrop, "；")
+                    blank("仅头部：低头变化 >", .headOnlyPitchDegrees, "°")
+                }
+                Divider().overlay(Palette.line)
+                ruleRow("疑似探头", needsShoulders: true) {
+                    blank("头部大小 / 肩宽比增加 >", .forwardScalePercent, "%，")
+                    blank("并满足任一项：低头变化 >", .forwardPitchDegrees, "°，")
+                    blank("或头肩距离 / 肩宽比下降 >", .forwardHeadDrop)
+                }
+                PostureRuleFlow {
+                    blank("转头 ≥", .maxYawDegrees, "°、")
+                    blank("俯仰 ≥", .maxPitchDegrees, "°时暂停判断。")
+                    blank("识别丢失不超过", .observationGraceSeconds, "秒时保留进度，但不计时。")
+                }
+            }.id(thresholdEdit.resetID).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            Text(thresholdEdit.notice).font(.system(size: 12)).foregroundStyle(Palette.accent)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("面部遮挡或多人入镜时暂停判断；识别丢失超过设定时长后，清除偏离计时。正面镜头不能判断所有不良坐姿。")
                 .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
         }.card(padding: 22)
     }
-    private func ruleRow(_ title: String, detail: String, needsShoulders: Bool) -> some View {
+    private func blank(_ prefix: String, _ field: PostureThreshold, _ suffix: String = "") -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(prefix)
+            InlinePostureNumber(field: field, value: Binding(get: { model.settings.postureThresholds[field] },
+                set: { model.settings.postureThresholds[field] = $0 }), onResult: { thresholdEdit.notice = $0 })
+            if !suffix.isEmpty { Text(suffix) }
+        }.fixedSize().frame(height: 28)
+    }
+    private func ruleRow<Content: View>(_ title: String, needsShoulders: Bool, @ViewBuilder content: () -> Content) -> some View {
         let state = !monitor.running ? "未监测" : monitor.baseline == nil ? "待校准"
             : monitor.lastSample == nil ? "等待识别" : needsShoulders && !shouldersAvailable ? "肩部不可用" : "检测中"
         return HStack(alignment: .top, spacing: 18) {
-            Text(title).font(.system(size: 14, weight: .medium)).frame(width: 84, alignment: .leading)
-            Text(detail).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+            Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.ink).frame(width: 84, height: 28, alignment: .leading)
+            PostureRuleFlow { content() }.frame(maxWidth: .infinity, alignment: .leading)
             Text(state).font(.system(size: 12, weight: .medium)).foregroundStyle(state == "检测中" ? Palette.accent : Palette.secondary)
-                .frame(width: 76, alignment: .trailing)
+                .frame(width: 76, height: 28, alignment: .trailing)
         }
     }
     private var statusDetail: String {
@@ -273,7 +310,7 @@ final class PostureAlertController {
     private var rotation = PostureMessageRotation()
     private var previewRotation = PostureMessageRotation()
     var appearance: NSAppearance? { didSet { panel?.appearance = appearance } }
-    func show(issue: PostureIssue, playful: Bool, preview: Bool = false) {
+    func show(issue: PostureIssue, playful: Bool, displaySeconds: Double = 5, preview: Bool = false) {
         close()
         guard let screen = NSApp.keyWindow?.screen ?? NSApp.mainWindow?.screen ?? NSScreen.main else { return }
         let message = preview ? previewRotation.message(for: issue, playful: playful) : rotation.message(for: issue, playful: playful)
@@ -295,7 +332,7 @@ final class PostureAlertController {
         panel.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - width / 2, y: screen.visibleFrame.maxY - height - 8))
         self.panel = panel; panel.orderFrontRegardless()
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(PostureThreshold.displaySeconds.normalized(displaySeconds) * 1_000_000_000))
             guard !Task.isCancelled else { return }; self?.close()
         }
     }

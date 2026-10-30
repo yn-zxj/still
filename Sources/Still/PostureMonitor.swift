@@ -160,6 +160,12 @@ final class PostureMonitor: ObservableObject {
     var onAlert: ((PostureIssue) -> Void)?
     var session: AVCaptureSession { camera.session }
 
+    func updateThresholds(_ value: PostureThresholds) {
+        engine.updateThresholds(value, at: ProcessInfo.processInfo.systemUptime)
+        assessment = engine.assessment
+        if let sample = lastSample, !sample.isUsable(with: engine.thresholds) { lastSample = nil }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         paused = defaults.bool(forKey: "posture.paused.v1")
@@ -230,7 +236,7 @@ final class PostureMonitor: ObservableObject {
     func calibrate() { guard running else { return }; engine.beginCalibration(); assessment = engine.assessment }
     private func receive(id: UUID, sample: PostureSample?) {
         guard self.id == id, enabled, available, !paused, running else { return }
-        lastFrameAt = Date(); lastSample = sample?.usable == true ? sample : nil
+        lastFrameAt = Date(); lastSample = sample?.isUsable(with: engine.thresholds) == true ? sample : nil
         assessment = engine.ingest(sample, at: ProcessInfo.processInfo.systemUptime)
         if assessment.shouldAlert, let issue = assessment.alertIssue {
             lastReminder = "最近提醒：\(issue.title) · \(Date().formatted(.dateTime.hour().minute().second()))"

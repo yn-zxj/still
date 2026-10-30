@@ -38,6 +38,7 @@ public struct MonitorSettings: Codable, Equatable {
     public var appearanceTheme: AppearanceTheme = .light
     public var postureEnabled = false
     public var posturePlayful = true
+    public var postureThresholds = PostureThresholds()
     public var automaticUpdateChecks = true
     // Kept in the Codable shape so older settings continue to decode.
     // The menu bar now always shows only the icon and fatigue percentage.
@@ -50,7 +51,7 @@ public struct MonitorSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes, mode
         case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
-        case postureEnabled, posturePlayful, automaticUpdateChecks
+        case postureEnabled, posturePlayful, postureThresholds, automaticUpdateChecks
         case showMenuFatigue, reminderStyle, reminderMessage, showDailyTimeInReminder
     }
     public init(from decoder: Decoder) throws {
@@ -69,6 +70,7 @@ public struct MonitorSettings: Codable, Equatable {
         appearanceTheme = try c.decodeIfPresent(AppearanceTheme.self, forKey: .appearanceTheme) ?? appearanceTheme
         postureEnabled = try c.decodeIfPresent(Bool.self, forKey: .postureEnabled) ?? postureEnabled
         posturePlayful = try c.decodeIfPresent(Bool.self, forKey: .posturePlayful) ?? posturePlayful
+        postureThresholds = try c.decodeIfPresent(PostureThresholds.self, forKey: .postureThresholds) ?? postureThresholds
         automaticUpdateChecks = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecks) ?? automaticUpdateChecks
         showMenuCountdown = try c.decodeIfPresent(Bool.self, forKey: .showMenuCountdown) ?? showMenuCountdown
         showMenuFatigue = try c.decodeIfPresent(Bool.self, forKey: .showMenuFatigue) ?? showMenuFatigue

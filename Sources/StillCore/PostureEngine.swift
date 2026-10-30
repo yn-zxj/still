@@ -21,9 +21,11 @@ public struct PostureSample: Equatable {
         self.neckHeight = neckHeight; self.headRoll = headRoll; self.shoulderRoll = shoulderRoll
         self.pitch = pitch; self.yaw = yaw; self.centerX = centerX; self.centerY = centerY; self.confidence = confidence
     }
-    public var usable: Bool {
+    public var usable: Bool { isUsable(with: PostureThresholds()) }
+    public func isUsable(with thresholds: PostureThresholds) -> Bool {
         [time, faceHeight, shoulderWidth, neckHeight, headRoll, shoulderRoll, pitch, yaw, centerX, centerY, confidence].allSatisfy(\.isFinite)
-        && faceHeight > 0.06 && (!hasShoulders || shoulderWidth > 0.12) && confidence >= 0.6 && abs(yaw) < 20 && abs(pitch) < 40
+        && faceHeight > 0.06 && (!hasShoulders || shoulderWidth > 0.12) && confidence >= 0.6
+        && abs(yaw) < thresholds.maxYawDegrees && abs(pitch) < thresholds.maxPitchDegrees
     }
 }
 
@@ -92,24 +94,35 @@ public struct PostureEngine {
     private var evidence: [PostureIssue: Evidence] = [:]
     private var previousFrameWasValid = false
     private var lastAlert: Double?
-    public var sustainSeconds: Double = 12
-    public var cooldownSeconds: Double = 60
-    public init() {}
+    public private(set) var thresholds: PostureThresholds
+    public var sustainSeconds: Double { thresholds.sustainSeconds }
+    public var cooldownSeconds: Double { thresholds.cooldownSeconds }
+    public init(thresholds: PostureThresholds = PostureThresholds()) { self.thresholds = thresholds.normalized }
+
+    public mutating func updateThresholds(_ value: PostureThresholds, at time: Double? = nil) {
+        let normalized = value.normalized
+        guard normalized != thresholds else { return }
+        thresholds = normalized
+        let timestamp = time ?? lastTime
+        resetEvidence()
+        assessment = PostureAssessment(state: calibrating ? .calibrating : baseline == nil ? .uncalibrated : .unavailable,
+            cooldownRemaining: cooldown(at: timestamp))
+    }
 
     public mutating func beginCalibration() {
         baseline = nil; calibrating = true; samples = []; resetEvidence()
         assessment = PostureAssessment(state: .calibrating)
     }
-    public mutating func reset() { self = PostureEngine() }
+    public mutating func reset() { self = PostureEngine(thresholds: thresholds) }
     public mutating func resetEvidence() {
         lastTime = nil; evidence = [:]; previousFrameWasValid = false; shoulderSamples = []; samples = []
     }
     public mutating func ingest(_ sample: PostureSample?, at observationTime: Double? = nil) -> PostureAssessment {
-        guard let s = sample, s.usable else {
+        guard let s = sample, s.isUsable(with: thresholds) else {
             let time = observationTime ?? sample?.time
-            if !calibrating, let time, time.isFinite, let lastTime, time > lastTime, time - lastTime <= 1.5 {
+            if !calibrating, let time, time.isFinite, let lastTime, time > lastTime, time - lastTime <= thresholds.observationGraceSeconds {
                 // A brief unknown frame pauses evidence; it never contributes unobserved time.
-                evidence = evidence.filter { time - $0.value.lastSeen <= 1.5 }
+                evidence = evidence.filter { time - $0.value.lastSeen <= thresholds.observationGraceSeconds }
                 shoulderSamples = []; previousFrameWasValid = false
             } else { resetEvidence() }
             assessment = PostureAssessment(state: .unavailable, cooldownRemaining: cooldown(at: time))
@@ -169,24 +182,26 @@ public struct PostureEngine {
         let b = baseline!
         let shoulders = s.hasShoulders && b.hasShoulders
         var issues: [PostureIssue] = []
-        if abs(s.headRoll - b.headRoll) > 12 { issues.append(.headTilt) }
-        if shoulders && abs(s.shoulderRoll - b.shoulderRoll) > 10 { issues.append(.shoulderTilt) }
+        if abs(s.headRoll - b.headRoll) > thresholds.headTiltDegrees { issues.append(.headTilt) }
+        if shoulders && abs(s.shoulderRoll - b.shoulderRoll) > thresholds.shoulderTiltDegrees { issues.append(.shoulderTilt) }
         let headDrop = shoulders ? b.neckHeight / b.shoulderWidth - s.neckHeight / s.shoulderWidth : 0
         let pitchChange = s.pitch - b.pitch // Vision pitch is positive when nodding down.
-        if shoulders ? (headDrop > 0.12 && pitchChange > 12) : pitchChange > 15 { issues.append(.loweredHead) }
+        if shoulders ? (headDrop > thresholds.loweredHeadDrop && pitchChange > thresholds.loweredPitchDegrees) : pitchChange > thresholds.headOnlyPitchDegrees { issues.append(.loweredHead) }
         // Distance alone is insufficient: require head/shoulder ratio increase AND a second cue.
         let relativeHeadScale = shoulders ? (s.faceHeight / s.shoulderWidth) / (b.faceHeight / b.shoulderWidth) : 1
-        if shoulders && relativeHeadScale > 1.20 && (headDrop > 0.10 || pitchChange > 10) { issues.append(.possibleForwardLean) }
+        if shoulders && relativeHeadScale > 1 + thresholds.forwardScalePercent / 100
+            && (headDrop > thresholds.forwardHeadDrop || pitchChange > thresholds.forwardPitchDegrees) { issues.append(.possibleForwardLean) }
         for issue in PostureIssue.allCases {
             if issues.contains(issue) {
                 var item = evidence[issue] ?? Evidence(seconds: 0, lastSeen: s.time)
-                if s.time - item.lastSeen > 1.5 { item.seconds = 0 }
-                if previousFrameWasValid, let previousTime, item.lastSeen == previousTime, s.time - previousTime <= 1.5 {
+                let consecutive = previousFrameWasValid && item.lastSeen == previousTime
+                if !consecutive && s.time - item.lastSeen > thresholds.observationGraceSeconds { item.seconds = 0 }
+                if consecutive, let previousTime, s.time - previousTime <= 2 {
                     item.seconds += max(0, s.time - previousTime)
                 }
                 item.lastSeen = s.time; evidence[issue] = item
             } else if !shoulders && (issue == .shoulderTilt || issue == .possibleForwardLean),
-                      let item = evidence[issue], s.time - item.lastSeen <= 1.5 {
+                      let item = evidence[issue], s.time - item.lastSeen <= thresholds.observationGraceSeconds {
                 // Missing shoulders are unknown, not evidence that the shoulder posture recovered.
                 continue
             } else { evidence[issue] = nil }
@@ -194,7 +209,7 @@ public struct PostureEngine {
         previousFrameWasValid = true
         let longest = issues.max { evidence[$0, default: Evidence(seconds: 0, lastSeen: s.time)].seconds < evidence[$1, default: Evidence(seconds: 0, lastSeen: s.time)].seconds }
         let seconds = longest.flatMap { evidence[$0]?.seconds } ?? 0
-        let alert = seconds >= sustainSeconds && cooldown(at: s.time) == 0
+        let alert = longest != nil && seconds >= sustainSeconds && cooldown(at: s.time) == 0
         if alert { lastAlert = s.time }
         assessment = PostureAssessment(state: issues.isEmpty ? .aligned : .deviation, issues: issues,
             deviationSeconds: seconds, shouldAlert: alert, alertIssue: alert ? longest : nil, cooldownRemaining: cooldown(at: s.time))

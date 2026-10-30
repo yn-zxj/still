@@ -151,7 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func presentPostureAlert(_ issue: PostureIssue, preview: Bool = false) {
-        postureAlerts.show(issue: issue, playful: model.settings.posturePlayful, preview: preview)
+        postureAlerts.show(issue: issue, playful: model.settings.posturePlayful,
+            displaySeconds: model.settings.postureThresholds.displaySeconds, preview: preview)
     }
     @objc private func checkUpdates() { model.page = .settings; showMainWindow(); model.updatesRequest += 1; model.updater.check() }
     private func showMainWindow() { mainWindow.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true) }

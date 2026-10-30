@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.4.1 / build 8（已发布）
+## 当前实现：0.4.2 / build 9（本轮待发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -32,7 +32,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 | 持久化 | `~/Library/Application Support/Still/usage.sqlite`；UserDefaults `local.still.app` |
 | 生命周期 | 菜单栏常驻、关闭窗口继续统计、单实例保护、可选登录启动 |
 | 更新 | GitHub Release 检查、每日自动检查、Keychain 私有只读令牌、架构匹配下载及 SHA-256 校验，手动替换安装 |
-| 坐姿 | 默认关闭；4 秒校准、本机 Lightweight OpenPose + Apple Vision、肩颈骨架/面部标记、后台监测、顶部纯文字提醒 |
+| 坐姿 | 默认关闭；4 秒校准、本机 Lightweight OpenPose + Apple Vision、肩颈骨架/面部标记、后台监测、顶部纯文字提醒；规则内 14 项阈值可原位填空编辑 |
 | 课程 | 15门课程已安装本机目录；原始封面网格→训练页，左侧动作、右侧按素材比例播放，远程图片/视频及本地导入兼容 |
 | 手表 | 用户要求暂缓；已撤下导航、课程连接栏、连接器实例与蓝牙权限，实验源码保留在 `experiments/watch/` 与 `watch-companion/` |
 
@@ -53,7 +53,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.4.1` 发布在私有仓库 Release，不是公开分发版本。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 95 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 102 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -256,3 +256,13 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 普通 `dist/息间.app` 实际查看规则区：四类阈值、未监测状态、时间与不可判条件、文案数量均完整显示，无文字遮挡；预览原生窗口为 level 1000、37pt 高并随文案收窄。新版当前等待手动开启摄像头，没有代用户改系统授权或校准；新规则下真人持续偏离/冷却界面需用户自然坐姿校准后再体验，不能以文案预览当作检测端到端验收。原数据与规则保留。
 - 实现提交 `4a45a62a7451e4600acae562bef00ae07ed17c5b` 与标签 `v0.4.1` 已推送；主分支 run `40988393647` 和标签 run `40988400533` 均成功，云端 95 项测试通过。Release：https://github.com/yn-zxj/still/releases/tag/v0.4.1 ，正式 ZIP/校验和/清单三项齐全。
 - 已重新下载审计：`Still-0.4.1-8-arm64-macos.zip` SHA-256 `e2ca226b2d35e7236f0a55b50c4f3f7e3eacce642d8c8769b91f5479f81e029d` 与侧车及 GitHub 一致；ZIP 完整、Bundle `local.still.app` 0.4.1 (8)、arm64、严格签名检查、模型摘要及许可证均通过，清单对应上述实现提交。没有运行下载审计副本；发布仍为 ad-hoc 签名，临床准确性、Intel、私有更新令牌下载和手动替换升级的边界沿用 0.4.0。
+
+### 0.4.2 填空式阈值编辑
+
+- 按用户截图在原句中的数字位置直接放输入框，浅底/下划线、统一 28pt 高；不是弹窗、滑块或独立表单。规则片段可自然换行并保持数字与单位相邻。所有字段有独立无障碍名称和范围帮助，回车或移开焦点保存；包含恢复默认入口。
+- 14 项配置与实际引擎共用 `PostureThresholds`，包括角度、比例、累计/展示/冷却时间和转头/俯仰/识别丢失容忍。低头两种模式同时列出，识别模式切换不移除正在编辑的字段；进度与提示文案跟随配置。
+- 保存沿用 `settings.v1`，兼容旧设置/部分字段。非法、空值、越界或超出小数精度的输入就地提示并保留旧值，不弹窗；归一化持久化与引擎入口，防止非有限/越界值进入算法。修改清除旧偏离证据，保留校准与最近提醒时间；重连/关闭不重置自定义值。0 秒识别容忍只禁用丢失保留，不阻止正常采样累计。
+- 新增七项回归：旧设置/部分解码与往返、输入/边界、各类角度与比例实际分类、累计与冷却、改动后基准/冷却保留与证据清除、识别角度上限、零容忍采样行为。本机 SDK 27 的 State 宏缺少 CLT 插件，编辑临时状态采用项目已有的 StateObject 写法；未修改系统工具链或依赖。
+- 最终本地 102 项测试通过（74 核心 + 28 资源/网络/模型），Release 构建与严格签名校验通过，diff 检查通过。
+- 普通应用实际验收：14 个输入框完整显示，Tab 移焦和回车保存、越界拒绝均通过；角度改为 13°，正常退出后重开仍为 13°；比例 0.11 保存、展示时间 2 秒同步文案，实际预览窗口观测约 2.3 秒后关闭（含采样/调度开销）。恢复默认按钮把所有验收用数值恢复，未重置统计、课程、外观或用眼规则。
+- 本次摄像头仍等待用户开启，没有替用户校准或修改系统授权；真人检测准确性不是输入框/UI 验证覆盖范围。私有更新令牌、Intel/公证等既有未验收边界保持不变。
