@@ -36,6 +36,9 @@ public struct MonitorSettings: Codable, Equatable {
     public var notificationsEnabled = false
     public var motionEnabled = true
     public var appearanceTheme: AppearanceTheme = .light
+    public var postureEnabled = false
+    public var posturePlayful = true
+    public var automaticUpdateChecks = true
     // Kept in the Codable shape so older settings continue to decode.
     // The menu bar now always shows only the icon and fatigue percentage.
     public var showMenuCountdown = true
@@ -47,6 +50,7 @@ public struct MonitorSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes, mode
         case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
+        case postureEnabled, posturePlayful, automaticUpdateChecks
         case showMenuFatigue, reminderStyle, reminderMessage, showDailyTimeInReminder
     }
     public init(from decoder: Decoder) throws {
@@ -63,6 +67,9 @@ public struct MonitorSettings: Codable, Equatable {
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? notificationsEnabled
         motionEnabled = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? motionEnabled
         appearanceTheme = try c.decodeIfPresent(AppearanceTheme.self, forKey: .appearanceTheme) ?? appearanceTheme
+        postureEnabled = try c.decodeIfPresent(Bool.self, forKey: .postureEnabled) ?? postureEnabled
+        posturePlayful = try c.decodeIfPresent(Bool.self, forKey: .posturePlayful) ?? posturePlayful
+        automaticUpdateChecks = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecks) ?? automaticUpdateChecks
         showMenuCountdown = try c.decodeIfPresent(Bool.self, forKey: .showMenuCountdown) ?? showMenuCountdown
         showMenuFatigue = try c.decodeIfPresent(Bool.self, forKey: .showMenuFatigue) ?? showMenuFatigue
         reminderStyle = try c.decodeIfPresent(ReminderStyle.self, forKey: .reminderStyle) ?? reminderStyle

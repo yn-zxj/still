@@ -47,8 +47,8 @@ def arc(x1, y1, rx, ry, angle, large, sweep, x2, y2):
     return result
 
 def path_commands(data):
-    position=0; cmd=None; x=y=sx=sy=0; result=[]
-    sizes={'M':2,'L':2,'H':1,'V':1,'C':6,'Q':4,'A':7}
+    position=0; cmd=None; x=y=sx=sy=0; control=None; result=[]
+    sizes={'M':2,'L':2,'H':1,'V':1,'C':6,'S':4,'Q':4,'A':7}
     numeric=re.compile(r'[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?')
     def skip():
         nonlocal position
@@ -59,7 +59,7 @@ def path_commands(data):
         if data[position].isalpha():
             cmd=data[position]; position+=1
             if cmd.upper()=='Z':
-                result.append('p.closeSubpath()'); x,y=sx,sy; continue
+                result.append('p.closeSubpath()'); x,y=sx,sy; control=None; continue
         op=cmd.upper(); values=[]
         for parameter in range(sizes[op]):
             skip()
@@ -72,6 +72,7 @@ def path_commands(data):
                 values.append(float(match.group())); position=match.end()
         relative=cmd.islower()
         def dest(a,b): return (a+x,b+y) if relative else (a,b)
+        if op not in ['C','S']: control=None
         if op in ['M','L']:
             nx,ny=dest(*values)
             result.append(f'p.{"move" if op=="M" else "addLine"}(to: {point(nx,ny)})')
@@ -83,7 +84,11 @@ def path_commands(data):
             result.append(f'p.addLine(to: {point(nx,ny)})'); x,y=nx,ny
         elif op=='C':
             a,b=dest(*values[:2]); c,d=dest(*values[2:4]); nx,ny=dest(*values[4:])
-            result.append(f'p.addCurve(to: {point(nx,ny)}, control1: {point(a,b)}, control2: {point(c,d)})'); x,y=nx,ny
+            result.append(f'p.addCurve(to: {point(nx,ny)}, control1: {point(a,b)}, control2: {point(c,d)})'); x,y=nx,ny; control=(c,d)
+        elif op=='S':
+            a,b=(2*x-control[0],2*y-control[1]) if control else (x,y)
+            c,d=dest(*values[:2]); nx,ny=dest(*values[2:])
+            result.append(f'p.addCurve(to: {point(nx,ny)}, control1: {point(a,b)}, control2: {point(c,d)})'); x,y=nx,ny; control=(c,d)
         elif op=='Q':
             a,b=dest(*values[:2]); nx,ny=dest(*values[2:])
             result.append(f'p.addQuadCurve(to: {point(nx,ny)}, control: {point(a,b)})'); x,y=nx,ny

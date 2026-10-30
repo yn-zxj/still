@@ -249,6 +249,17 @@ struct PreferencesView: View {
                 Button(model.engine.trackingPaused ? "恢复统计" : "暂停统计") { model.toggleTracking() }
                     .buttonStyle(SettingsButtonStyle())
             }.card(padding: 22)
+            VStack(spacing: 16) {
+                toggleRow("坐姿关照", "开启后显示坐姿页面。摄像头只在本机分析，支持后台监测与置顶提醒。", isOn: $model.settings.postureEnabled, icon: "person-standing")
+                if model.settings.postureEnabled {
+                    HStack {
+                        Text("先到坐姿页面完成校准，才会开始判断。").font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                        Spacer()
+                        Button("打开坐姿关照") { model.page = .posture }.buttonStyle(SettingsButtonStyle())
+                    }
+                }
+            }.card(padding: 25)
+            UpdateSettingsView(model: model, updater: model.updater)
             Text("息间 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1")")
                 .font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 5)
 

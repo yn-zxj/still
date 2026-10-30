@@ -1,0 +1,70 @@
+# 坐姿关照与版本更新
+
+## 检测能说明什么
+
+单个正面摄像头会丢失侧面深度信息。息间使用 Apple Vision 的面部方向和 Lightweight OpenPose 的二维肩颈关键点，比较本次个人校准后的变化，辅助提醒歪头、肩线倾斜、持续低头以及疑似探头；不输出医学评分，不测量颈椎曲度、驼背程度或标准头前倾角度。
+
+参考依据：
+
+- [Apple：Detecting Human Body Poses in Images](https://developer.apple.com/documentation/vision/detecting-human-body-poses-in-images)：关键点有置信度，视野、遮挡和检测质量会影响结果。
+- Apple SDK `VNObservation.h`：面部 pitch 为弧度，正方向表示低头；roll/yaw/pitch 均可能为 nil。实现缺少任一方向值时停止判断。
+- [OSHA：Computer Workstations — Positions](https://www.osha.gov/etools/computer-workstations/positions)：头颈与躯干保持自然关系，并经常变化姿势；不是保持一个位置不动。
+- [Evaluation of the Craniovertebral Angle in Standing versus Sitting Positions…](https://pubmed.ncbi.nlm.nih.gov/38665167/)：头前倾属于矢状面关系，摄影测量采用侧面参考。由此，本项目不将正面头肩比例直接当成标准头前倾角度。
+
+这些资料支持功能边界与校准引导，**不验证本项目阈值的临床有效性**。当前判断是保守的产品规则，尚没有真人标注数据集的准确率/召回率证据。后续需要在用户同意下收集不同光线、身形、眼镜、镜头角度的匿名数值测试记录，并由人工标记姿态变化；目前不采集或存储这类记录。
+
+## 本次判断规则
+
+- 优先使用 1280×720 以保持预览和识别坐标一致，设备不支持时回退 VGA。坐姿页面最多每秒 4 次分析；后台每秒最多 2 次，丢弃过期帧并串行执行。可见页面额外提取面部轮廓与五官关键点；有可靠肩部结果才画肩线及上臂，未识别的点不绘制。
+- 面部识别必须唯一，置信度至少 0.6，并有 yaw/roll/pitch。肩颈检测使用作者的 Lightweight OpenPose 权重（MobileNet + 初始阶段 + 一次 refinement），按论文采用热力图及 PAF。峰值响应至少 0.15，颈→鼻、颈→双肩连接沿线采样 10 点、至少 9 点的方向一致性超过 0.05，再与唯一面部及人体几何关系匹配；该响应不是概率，也不是医学评分。识别不足时保留头部模式，不补画假肩部。
+- 模型输入 456×256 BGR，标准化 (pixel−128)/256，16 位权重；输出 19 个热力图和 38 个 PAF 通道。使用 Vision 的 scaleFit，解码还原补边，渲染通过预览层映射并修正 AppKit 坐标方向。CPU/GPU/神经网络引擎由 Core ML 调度，应用不依赖 Python 或网络推理。
+- 先自然坐好，镜头固定，正脸及双肩完整入镜，稳定 4 秒且至少 6 个有效样本；即使肩部不可靠也可建立头部基准。采样中位数构成基准；图像和基准都不落盘。移动、缺失或采样间隔超过 2 秒会重置校准进度。
+- 歪头：相对基准 roll 变化超过 12°。肩线：相对基准倾斜超过 10°，角度计算校正图像宽高比。
+- 低头：有肩部基准时，头肩垂直距离按肩宽归一化后下降超过 0.12，且面部低头方向 pitch 增大超过 12°；仅头部模式使用低头方向 pitch 增大超过 15°。抬头的负向 pitch 不触发低头判断。
+- 疑似探头：头部/肩宽的比例相对基准增大超过 20%，且同时有归一化头位下降超过 0.10 或低头 pitch 增大超过 10°。只有脸框变大或整个人等比例靠近不能触发。
+- 正常前后移动、等比例距离变化或横向平移保留校准；头部方向和归一化头肩比例不依赖屏幕中的绝对位置。自动化只证明这些启发式规则按设计工作，不证明真实头前倾均可检出。
+- 肩线与疑似探头仅在基准、当前帧都可靠识别双肩时判断；头部基准后来遇到可靠肩部时，在头部接近原参照、肩线稳定的条件下观察 4 秒，自动补充肩部参照，不改变原头部角度基准；持续偏离不自动学习成正常姿势。肩部不可用时对应指标显示 —。
+- 同一组偏离连续 12 秒才提醒，提醒至少间隔 60 秒。无效帧、正好姿态恢复、时间倒退或帧间隔超过 2 秒不延续旧的偏离时间；超过 4 秒没有摄像头结果时清除判断。
+- 提醒为屏幕顶部居中的纯文字长条、`.screenSaver` 级非激活悬浮面板，不抢键盘焦点；没有标题、图标、关闭/导航/延后按钮，鼠标可穿透，5 秒自动消失。14pt 中等字重，按实际文字宽度加左右各 16pt 留白，上下各 10pt；距可用屏幕顶部 8pt，长文按屏宽自动换行。可选择轻松吐槽/温柔提醒。系统锁屏或系统级窗口仍由 macOS 控制，不能承诺覆盖。
+
+## 生命周期与隐私
+
+- 设置开关默认关闭。打开后显示「坐姿关照」导航；首次由系统询问摄像头权限。拒绝时显示原因和系统设置入口。
+- 只有启用功能且没有手动暂停/系统睡眠/锁屏/休息才运行摄像头。关闭主窗口或切换页面可继续后台分析。
+- 暂停、关闭开关、系统休息与退出会停止 session 并释放输入输出；普通暂停/休息恢复保留已有参照，只重置连续偏离证据；关闭功能、显式重新连接和退出应用清除内存参照。镜头角度改变时可手动重新校准。
+- 手动暂停状态保存在当前用户的 `posture.paused.v1`；重启不会擅自重新打开已暂停的摄像头，校准仍只在本次运行内存保留。
+- 画面不录制、不保存、不上传；不创建姿态照片或健康记录。只在本机内存里保留当前识别数值与本次校准，当前版本没有历史坐姿分数。
+- 摄像头接入、光照和长时功耗需要真机验收。自动化的合成关键点测试不能替代真人误报/漏报评估。
+
+## GitHub Release 更新
+
+- 固定源：`yn-zxj/still`，GitHub REST `GET /repos/yn-zxj/still/releases/latest`，只接受正式稳定版。
+- 设置页和应用菜单提供检查更新，自动检查最多每天一次成功检查（启动以及每小时检查时间门限）；私有/网络错误不会伪装成“最新版本”。
+- 私有仓库需要用户自行配置只读令牌，建议 fine-grained token 仅允许该仓库 Contents: Read。写入系统 Keychain，不写设置文件、日志或源码，不读取开发机 gh 凭据放进应用。[GitHub 文档](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+- 转为公开仓库后移除令牌即可匿名使用，不需要改客户端或部署更新服务。
+- 仅接受同仓库 HTTPS Release 地址与数字稳定版本，版本按数值比较，按本机架构选择 ZIP；没有匹配安装包/校验文件时保持错误状态。
+- 私有附件通过固定的 GitHub asset API 获取；到 CDN 重定向时移除 Authorization/Cookie，只允许 HTTPS GitHub 与 githubusercontent 主机。
+- ZIP 下载到临时文件后核对字节数及 SHA-256，正确才提交到 `~/Library/Caches/Still/Updates`；失败不替换旧包。不自动解压执行下载内容。
+- 安装：点击在访达中显示安装包，解压，正常退出息间，以新应用替换原位置，再次打开。当前没有后台自替换/自动重启；保留 `local.still.app` 和已有用户数据。
+- SHA-256 检查保障附件与同一 Release 的校验文件一致，不替代 Developer ID、公证或独立签名信任。发布仍遵循现有私有仓库策略。
+
+## 方法与论文展示
+
+坐姿页面提供简短的检测方法说明和论文入口：
+
+- [Cao 等，CVPR 2017：Realtime Multi-Person 2D Pose Estimation Using Part Affinity Fields](https://openaccess.thecvf.com/content_cvpr_2017/html/Cao_Realtime_Multi-Person_2D_CVPR_2017_paper.html)：说明二维关键点及人体连接关系的研究背景。本应用确实运行派生的 Lightweight OpenPose 网络，并检查 PAF 肢体关联；不能据该论文宣称本应用的临床准确性。
+- [Osokin，2018：Real-time 2D Multi-Person Pose Estimation on CPU: Lightweight OpenPose](https://arxiv.org/abs/1811.12004)：实际使用的轻量模型，来源/提交/权重摘要保存在 `Resources/Models/SOURCE.json`，附 Apache-2.0 许可证。转换脚本 `scripts/convert-posture-model.py` 只作为开发工具，不随应用运行。
+- [Titcomb 等，2024：Evaluation of the Craniovertebral Angle in Standing versus Sitting Positions](https://pubmed.ncbi.nlm.nih.gov/38665167/)：作为侧面摄影测量及姿势影响测量的参考，不将其颅椎角阈值直接搬到正面摄像头。
+
+## 模型供应与可复现构建
+
+- 代码来源固定为 `Daniil-Osokin/lightweight-human-pose-estimation.pytorch` 的 `d23c284b09acf27a163e1febd511e7482cac25ed`。
+- 检查点来自上游 README 指定的 Intel 下载地址，SHA-256 `517c86f769c6636583083f1467e3d212a0006c27109edb3aeffc19a79622d411`。
+- 与上游 demo 一样只保留一次 refinement，严格核对所用参数；作者训练检查点的额外 refinement 阶段不导出，未随机补权重。
+- Core ML 源模型约 7.8 MiB，SHA-256 由 SOURCE.json 记录，并由自动化和 Bundle 流水线校验；首次本机编译缓存按模型摘要区分版本。
+- 官方转换用 PyTorch 2.5.1、coremltools 8.3.0、NumPy 1.x。重建前取上游固定提交，运行：`python scripts/convert-posture-model.py --upstream /path/to/pinned-source --checkpoint /path/to/checkpoint.pth --output Resources/Models/StillPose.mlmodel`。原检查点及 Python 环境不放入仓库或应用。
+- 用户提供的同一张上半身截图：原 Vision 人体检测 0 个 observation；新模型通过鼻—颈—左右肩三条 PAF，Swift 原生路径检测到双肩，重复 3 次均通过。本机该静态样例平均推理约 15 ms，不代表全部设备/完整视频准确率或端到端提醒延迟。截图仅内存分析，未复制到仓库。
+
+## 验证状态
+
+实现后的自动化、普通应用 UI、摄像头真机以及 Release 状态分别记录在 PROJECT_STATUS.md，不以其中一项替代其它项。

@@ -1,10 +1,10 @@
-# 息间 0.3.3
+# 息间 0.4.0
 
 给每一段专注，留一点余地。
 
 原生 macOS 用眼与休息提醒工具。SwiftUI + AppKit 界面，独立 Swift 计时引擎，Core Data 本地持久化。没有第三方运行时依赖、自建账号或分析上报；选用远程课程时直接访问其媒体CDN。界面图标使用原生矢量绘制的 Lucide，版权许可随源码及应用附带。
 
-当前版本可从私有仓库的 [GitHub Release v0.3.3](https://github.com/yn-zxj/still/releases/tag/v0.3.3) 下载。附件为 Apple Silicon 构建，使用 ad-hoc 签名，尚未通过 Apple 公证。
+已发布版本可从私有仓库的 [GitHub Releases](https://github.com/yn-zxj/still/releases) 下载。附件为 Apple Silicon 构建，使用 ad-hoc 签名，尚未通过 Apple 公证。
 
 ## 开始使用
 
@@ -15,7 +15,8 @@
 - 今天：疲劳百分比、下一次休息倒计时、今日使用、完成休息、最长一轮、全天使用分布。
 - 使用记录：真实的 7 天/28 天历史、最近休息、CSV 导出。
 - 休息规则：全屏弹窗、迷你弹窗、系统通知三选一；自定义文案、今日时长显示、独立预览；三组预设和自定义时长、活动估算/持续阅读、空闲及重复提醒间隔。
-- 偏好设置：提醒与统计分别暂停、声音、动效、可选登录启动。
+- 偏好设置：提醒与统计分别暂停、声音、动效、可选登录启动、坐姿功能开关及 GitHub Release 检查更新。
+- 坐姿关照：4 秒个人校准，头部/肩部实时关键点，本机 Lightweight OpenPose + Apple Vision，支持后台分析、暂停、顶部纯文字置顶提醒（5 秒自动消失）；正常前后移动保留参照。
 - 休息窗口：全屏或迷你倒计时、呼吸花、疲劳百分比、提前结束、延后和跳过。全屏可按 Esc 或退出按钮关闭。
 - 疲劳值：显示在今日概览、菜单栏、快捷面板和休息窗口中。使用时增加、休息时减少，范围 0–100%。
 
@@ -51,6 +52,8 @@ bash scripts/test.sh
 脚本把编译缓存放在仓库 `.build/`，把应用写入 `dist/息间.app`；可用 `STILL_BUILD_DIR` 和 `STILL_APP_DIR` 覆盖输出路径。若全局 Xcode 尚未可用，可在命令前设置 `DEVELOPER_DIR=/Library/Developer/CommandLineTools` 使用已安装的 Command Line Tools。打开 `Package.swift` 可查看源码；也可用 Xcode 打开此 Swift Package，完整 Xcode 的许可由用户自行处理。
 
 GitHub Actions 会在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行测试并构建 macOS 应用。`main` 与 PR 构建会保留 14 天 Actions 产物；推送 `v*` 标签时，流水线会自动创建或更新对应 GitHub Release，并附上带版本号、Commit、架构清单和 SHA-256 的 ZIP。当前产物使用 ad-hoc 本地签名，尚未配置 Developer ID 和 Apple 公证。
+
+版本检查支持公开仓库匿名访问、私有仓库 Keychain 只读令牌；下载包需通过大小和 SHA-256 检查，再由用户解压并替换原应用。坐姿模型来源、论文对应关系、精度限制和隐私说明见 [坐姿与更新](docs/POSTURE_AND_UPDATES.md)。应用不录制、保存或上传摄像头画面；正面镜头不测量标准颅椎角或颈椎曲度。
 
 源代码分层：
 

@@ -1,0 +1,13 @@
+{
+  "name": "Lightweight OpenPose / StillPose",
+  "paper": "https://arxiv.org/abs/1811.12004",
+  "foundationPaper": "https://openaccess.thecvf.com/content_cvpr_2017/html/Cao_Realtime_Multi-Person_2D_CVPR_2017_paper.html",
+  "repository": "https://github.com/Daniil-Osokin/lightweight-human-pose-estimation.pytorch",
+  "commit": "d23c284b09acf27a163e1febd511e7482cac25ed",
+  "checkpointURL": "https://download.01.org/opencv/openvino_training_extensions/models/human_pose_estimation/checkpoint_iter_370000.pth",
+  "checkpointSHA256": "517c86f769c6636583083f1467e3d212a0006c27109edb3aeffc19a79622d411",
+  "modelSHA256": "37ef5e3e283ad0d18c6bb851039ac22b83d968ad696c0b497b0264f27cabaa01",
+  "license": "Apache-2.0",
+  "conversion": "One refinement stage as upstream demo; final heatmaps + PAFs; 16-bit weights; Core ML neural network; BGR (pixel-128)/256; input 456x256",
+  "medicalValidation": false
+}

@@ -5,9 +5,10 @@ import UserNotifications
 import StillCore
 
 enum Page: String, CaseIterable {
-    case courses = "休息课程", today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置"
+    case courses = "休息课程", today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置", posture = "坐姿关照"
     var icon: String {
         switch self {
+        case .posture: return "person-standing"
         case .courses: return "book-open"
         case .today: return "sun.max"
         case .history: return "chart.bar.xaxis"
@@ -21,6 +22,7 @@ enum Page: String, CaseIterable {
 final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     @Published var page: Page = .today
     @Published var historyDays = 7
+    @Published var updatesRequest = 0
     @Published private(set) var engine: UsageEngine
     @Published var settings: MonitorSettings {
         didSet {
@@ -29,6 +31,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
             if !settings.remindersEnabled || oldValue.reminderStyle != settings.reminderStyle { clearDueNotification() }
             if oldValue.appearanceTheme != settings.appearanceTheme { applyAppearance?() }
+            if oldValue.postureEnabled != settings.postureEnabled {
+                posture.configure(enabled: settings.postureEnabled, requestPermission: settings.postureEnabled)
+                if !settings.postureEnabled && page == .posture { page = .settings }
+            }
+            if !oldValue.automaticUpdateChecks && settings.automaticUpdateChecks { updater.checkAutomaticallyIfNeeded() }
             refreshMenu?()
             save()
         }
@@ -47,6 +54,8 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     var inReminderTraining = false
     private var courseRotation = DailyCourseRotation()
     private var previewRotation = DailyCourseRotation()
+    let posture: PostureMonitor
+    let updater = AppUpdater()
     let library: CourseLibrary
     let coursePlayer: CoursePlayer
     let isUITest: Bool
@@ -76,6 +85,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         library = CourseLibrary(isUITest: isUITest, rootOverride: testLibrary)
         coursePlayer = CoursePlayer(cache: library.videoCache, diagnostics: library.diagnostics)
         defaults = isUITest ? UserDefaults(suiteName: "local.still.ui-validation")! : .standard
+        posture = PostureMonitor(defaults: defaults)
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,
            let legacy = UserDefaults(suiteName: "local.xijian.app") {
@@ -128,6 +138,8 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             refreshNotificationStatus()
         }
         monitor.onChange = { [weak self] in self?.tick(); self?.save() }
+        posture.configure(enabled: initial.postureEnabled)
+        if initial.automaticUpdateChecks && !isUITest { updater.checkAutomaticallyIfNeeded() }
         tick()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -169,6 +181,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         let sample = monitor.sample()
         if !sample.available { coursePlayer.pause() }
         engine.tick(sample)
+        posture.setAvailable(sample.available && engine.phase != .resting)
         if engine.reminderSerial != previousReminder {
             previousReminder = engine.reminderSerial
             if engine.phase == .due && settings.remindersEnabled { showReminder?() }
@@ -185,6 +198,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
         refreshMenu?()
         tickCount += 1
+        if tickCount % 3600 == 0 && settings.automaticUpdateChecks && !isUITest { updater.checkAutomaticallyIfNeeded() }
         if tickCount % 20 == 0 { save() }
     }
 
@@ -247,7 +261,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         } catch { storageError = "记录保存失败：\(error.localizedDescription)" }
     }
 
-    func shutdown() { coursePlayer.shutdown(); timer?.invalidate(); save() }
+    func shutdown() { posture.shutdown(); coursePlayer.shutdown(); timer?.invalidate(); save() }
 
     private func clearDueNotification() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["still.due"])

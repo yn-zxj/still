@@ -16,27 +16,43 @@ struct DashboardView: View {
                         }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 25) {
-                            switch model.page {
-                            case .courses: EmptyView()
-                            case .today: TodayView(model: model)
-                            case .history: HistoryView(model: model)
-                            case .rules: RulesView(model: model)
-                            case .settings: PreferencesView(model: model)
+                    ScrollViewReader { proxy in
+                        ScrollView(showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 25) {
+                                switch model.page {
+                                case .posture: PostureView(model: model, monitor: model.posture)
+                                case .courses: EmptyView()
+                                case .today: TodayView(model: model)
+                                case .history: HistoryView(model: model)
+                                case .rules: RulesView(model: model)
+                                case .settings: PreferencesView(model: model)
+                                }
+                                if let error = model.storageError {
+                                    LineLabel(error + "。当前会话可继续计时，请先导出记录并检查磁盘。", systemImage: "exclamationmark.triangle")
+                                        .font(.system(size: 13)).foregroundStyle(Color.orange).padding(12)
+                                        .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+                                }
+                                if let error = model.reminderError, model.page != .rules {
+                                    LineLabel(error, systemImage: "triangle-alert").font(.system(size: 13)).foregroundStyle(Color.orange)
+                                }
                             }
-                            if let error = model.storageError {
-                                LineLabel(error + "。当前会话可继续计时，请先导出记录并检查磁盘。", systemImage: "exclamationmark.triangle")
-                                    .font(.system(size: 13)).foregroundStyle(Color.orange).padding(12)
-                                    .background(Color.orange.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-                            }
-                            if let error = model.reminderError, model.page != .rules {
-                                LineLabel(error, systemImage: "triangle-alert").font(.system(size: 13)).foregroundStyle(Color.orange)
+                            .id("page-top")
+                            .padding(.horizontal, 32).padding(.top, 38).padding(.bottom, 24)
+                            .frame(maxWidth: 1040, alignment: .leading)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .onChange(of: model.page) { _ in
+                            DispatchQueue.main.async { proxy.scrollTo("page-top", anchor: .top) }
+                        }
+                        .onChange(of: model.updatesRequest) { request in
+                            guard request > 0 else { return }
+                            DispatchQueue.main.async { proxy.scrollTo("app-updates", anchor: .bottom); model.updatesRequest = 0 }
+                        }
+                        .onAppear {
+                            if model.page == .settings && model.updatesRequest > 0 {
+                                DispatchQueue.main.async { proxy.scrollTo("app-updates", anchor: .bottom); model.updatesRequest = 0 }
                             }
                         }
-                        .padding(.horizontal, 32).padding(.top, 38).padding(.bottom, 24)
-                        .frame(maxWidth: 1040, alignment: .leading)
-                        .frame(maxWidth: .infinity)
                     }
                 }
             }
@@ -62,6 +78,7 @@ struct DashboardView: View {
             ForEach([Page.today, .courses, .history, .rules], id: \.self) { page in
                 navItem(page)
             }
+            if model.settings.postureEnabled { navItem(.posture) }
             Spacer(minLength: 35)
             navItem(.settings)
                 .padding(.bottom, 24)

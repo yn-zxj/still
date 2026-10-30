@@ -54,6 +54,10 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           codesign --verify --strict --verbose=2 "$app"
           lipo -archs "$app/Contents/MacOS/Still"
+          test -s "$app/Contents/Resources/StillPose.mlmodel"
+          expected_model="$(plutil -extract modelSHA256 raw "$app/Contents/Resources/PoseModelSource.json")"
+          actual_model="$(shasum -a 256 "$app/Contents/Resources/StillPose.mlmodel" | awk '{print $1}')"
+          test "$expected_model" = "$actual_model"
 
       - name: Package app and checksum
         id: package

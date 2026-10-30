@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reminders: ReminderWindowController?
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private let postureAlerts = PostureAlertController()
     private var visibilityObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -58,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.hideAllReminders = { [weak self] in self?.reminders?.close() }
         model.hideReminder = { [weak self] in self?.reminders?.dismissIfDue() }
         model.refreshMenu = { [weak self] in self?.refreshStatusItem() }
+        model.posture.onAlert = { [weak self] issue in self?.presentPostureAlert(issue) }
+        model.posture.onPreview = { [weak self] in self?.presentPostureAlert(.possibleForwardLean, preview: true) }
         applyWindowAppearance()
         showMainWindow()
         refreshStatusItem()
@@ -70,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "关于息间", action: #selector(showAbout), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "检查更新…", action: #selector(checkUpdates), keyEquivalent: ""))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "偏好设置…", action: #selector(openSettings), keyEquivalent: ","))
         appMenu.addItem(.separator())
@@ -143,8 +147,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindow.appearance = appearance
         popover.appearance = appearance
         reminders?.applyAppearance(appearance)
+        postureAlerts.appearance = appearance
     }
 
+    private func presentPostureAlert(_ issue: PostureIssue, preview: Bool = false) {
+        postureAlerts.show(issue: issue, playful: model.settings.posturePlayful, preview: preview)
+    }
+    @objc private func checkUpdates() { model.page = .settings; showMainWindow(); model.updatesRequest += 1; model.updater.check() }
     private func showMainWindow() { mainWindow.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true) }
     @objc private func openMain() { showMainWindow() }
     @objc private func openSettings() { model.page = .settings; showMainWindow() }

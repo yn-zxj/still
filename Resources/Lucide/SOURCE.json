@@ -32,6 +32,11 @@
     "eye",
     "percent",
     "app-window",
-    "chevron-down"
+    "chevron-down",
+    "camera",
+    "scan-face",
+    "focus",
+    "download",
+    "person-standing"
   ]
 }
