@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.4.1 / build 8（本轮待发布）
+## 当前实现：0.4.1 / build 8（已发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -51,7 +51,7 @@ docs/               本项目档案
 
 默认构建缓存为 `.build/`，应用输出为 `dist/息间.app`，两者忽略提交。支持 `STILL_BUILD_DIR` / `STILL_APP_DIR` 覆盖。本机原有应用仍在上层 `Still-macOS/`，不自动替换正在运行的副本。
 
-构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.4.0` 发布在私有仓库 Release，不是公开分发版本。
+构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。产物为本地临时签名，尚无 Developer ID 签名、公证或 Intel 构建；当前 `v0.4.1` 发布在私有仓库 Release，不是公开分发版本。
 
 GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 95 项测试、Release 构建、Bundle/签名校验与 ZIP 打包，并上传版本、Commit、架构和 SHA-256 清单。`main` 与 PR 构建保留 Actions 产物；`v*` 标签会自动创建或更新 GitHub Release，并上传 ZIP、校验和与清单。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
@@ -254,3 +254,5 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 只读查看用户当时普通应用状态：头部模式、持续歪头 13 秒；肩部不可用，无法证明其它动作应触发。用户后续说明原以为歪头就会立即提醒，具体保持时长未确认，不能把其未提醒全部归因于计时问题。没有保存画面或姿态记录。
 - 本地 95 项测试通过（67 核心 + 28 资源/网络/模型），新增混合动作、成熟动作选取、短丢失暂停不补时、长丢失清除、肩部缺失、不拼接短动作、文案轮换回归。Release 构建与严格签名检查通过。
 - 普通 `dist/息间.app` 实际查看规则区：四类阈值、未监测状态、时间与不可判条件、文案数量均完整显示，无文字遮挡；预览原生窗口为 level 1000、37pt 高并随文案收窄。新版当前等待手动开启摄像头，没有代用户改系统授权或校准；新规则下真人持续偏离/冷却界面需用户自然坐姿校准后再体验，不能以文案预览当作检测端到端验收。原数据与规则保留。
+- 实现提交 `4a45a62a7451e4600acae562bef00ae07ed17c5b` 与标签 `v0.4.1` 已推送；主分支 run `40988393647` 和标签 run `40988400533` 均成功，云端 95 项测试通过。Release：https://github.com/yn-zxj/still/releases/tag/v0.4.1 ，正式 ZIP/校验和/清单三项齐全。
+- 已重新下载审计：`Still-0.4.1-8-arm64-macos.zip` SHA-256 `e2ca226b2d35e7236f0a55b50c4f3f7e3eacce642d8c8769b91f5479f81e029d` 与侧车及 GitHub 一致；ZIP 完整、Bundle `local.still.app` 0.4.1 (8)、arm64、严格签名检查、模型摘要及许可证均通过，清单对应上述实现提交。没有运行下载审计副本；发布仍为 ad-hoc 签名，临床准确性、Intel、私有更新令牌下载和手动替换升级的边界沿用 0.4.0。
