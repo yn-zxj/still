@@ -5,8 +5,10 @@ import Testing
 @Suite(.serialized)
 struct UsageEngineTests {
     let origin = Date(timeIntervalSince1970: 1_790_000_000)
-    func sample(_ second: Double, idle: Double = 0, available: Bool = true, wallOffset: Double = 0) -> ActivitySample {
-        ActivitySample(date: origin.addingTimeInterval(second + wallOffset), monotonic: second, idleSeconds: idle, available: available)
+    func sample(_ second: Double, idle: Double = 0, available: Bool = true, wallOffset: Double = 0,
+                application: ForegroundApplication? = nil) -> ActivitySample {
+        ActivitySample(date: origin.addingTimeInterval(second + wallOffset), monotonic: second,
+                       idleSeconds: idle, available: available, foregroundApplication: application)
     }
     func advance(_ engine: inout UsageEngine, from: Int, to: Int, idleSince: Int? = nil) {
         for second in from...to { engine.tick(sample(Double(second), idle: idleSince.map { Double(max(0, second - $0)) } ?? 0)) }
@@ -169,10 +171,10 @@ struct UsageEngineTests {
         let repository = try UsageRepository(inMemory: true)
         _ = try repository.load()
         var segment = UsageSegment(roundID: UUID(), startedAt: origin, endedAt: origin.addingTimeInterval(10), seconds: 10, mode: .activity)
-        try repository.save(segments: [segment], breaks: [])
+        try repository.save(segments: [segment], applicationSegments: [], breaks: [])
         segment.seconds = 5; segment.endedAt = origin.addingTimeInterval(5)
         let rest = BreakRecord(startedAt: origin, endedAt: origin.addingTimeInterval(5), targetSeconds: 5, outcome: .completed, source: .manual)
-        try repository.save(segments: [segment], breaks: [rest])
+        try repository.save(segments: [segment], applicationSegments: [], breaks: [rest])
         let loaded = try repository.load()
         #expect((loaded.segments.count) == (1))
         #expect((loaded.segments[0].seconds) == (5))
@@ -187,7 +189,7 @@ struct UsageEngineTests {
         do {
             let first = try UsageRepository(directory: folder)
             _ = try first.load()
-            try first.save(segments: [segment], breaks: [])
+            try first.save(segments: [segment], applicationSegments: [], breaks: [])
         }
         let second = try UsageRepository(directory: folder)
         let loaded = try second.load()
@@ -226,6 +228,7 @@ struct UsageEngineTests {
         #expect(settings.reminderStyle == .mini)
         #expect(settings.appearanceTheme == .light)
         #expect(settings.showMenuFatigue)
+        #expect(settings.applicationInsightsEnabled)
     }
 
     @Test func testAppearanceThemePersists() throws {
@@ -245,6 +248,96 @@ struct UsageEngineTests {
             let saved = try JSONDecoder().decode(MonitorSettings.self, from: JSONEncoder().encode(settings))
             #expect(saved == settings)
         }
+    }
+
+    @Test func testApplicationInsightsTrackOnlyCountedForegroundTimeAndSplitSwitches() {
+        let browser = ForegroundApplication(bundleID: "com.apple.Safari", name: "Safari")
+        let editor = ForegroundApplication(bundleID: "com.apple.dt.Xcode", name: "Xcode")
+        var engine = UsageEngine()
+        for second in 0...10 {
+            engine.tick(sample(Double(second), application: browser))
+        }
+        for second in 11...20 {
+            engine.tick(sample(Double(second), application: editor))
+        }
+        #expect(engine.applicationSegments.count == 2)
+        #expect(engine.applicationSegments[0].bundleID == browser.bundleID)
+        #expect(engine.applicationSegments[1].bundleID == editor.bundleID)
+        #expect(abs(engine.applicationSegments.reduce(0) { $0 + $1.seconds } - engine.roundSeconds) < 0.001)
+
+        engine.tick(sample(21, available: false, application: browser))
+        engine.tick(sample(22, application: browser))
+        engine.setTrackingPaused(true, sample: sample(23, application: browser))
+        let countBeforePause = engine.applicationSegments.count
+        let secondsBeforePause = engine.applicationSegments.reduce(0) { $0 + $1.seconds }
+        engine.tick(sample(30, application: browser))
+        #expect(engine.applicationSegments.count == countBeforePause)
+        #expect(abs(engine.applicationSegments.reduce(0) { $0 + $1.seconds } - secondsBeforePause) < 0.001)
+    }
+
+    @Test func testApplicationInsightsSummariesSwitchCountsAndCategoryClassification() {
+        let start = origin
+        let browser = ForegroundApplication(bundleID: "com.apple.Safari", name: "Safari")
+        let editor = ForegroundApplication(bundleID: "com.apple.dt.Xcode", name: "Xcode")
+        let chat = ForegroundApplication(bundleID: "com.tencent.xinWeChat", name: "微信")
+        let codingAgent = ForegroundApplication(bundleID: "com.qoder.ide", name: "Qoder")
+        #expect(browser.category == .browsing)
+        #expect(editor.category == .development)
+        #expect(chat.category == .communication)
+        #expect(codingAgent.category == .development)
+
+        let segments = [
+            ApplicationUsageSegment(startedAt: start, endedAt: start.addingTimeInterval(600), seconds: 600, application: browser),
+            ApplicationUsageSegment(startedAt: start.addingTimeInterval(600), endedAt: start.addingTimeInterval(900), seconds: 300, application: editor),
+            ApplicationUsageSegment(startedAt: start.addingTimeInterval(900), endedAt: start.addingTimeInterval(1200), seconds: 300, application: browser)
+        ]
+        let summary = ApplicationInsights.make(
+            segments: segments,
+            interval: DateInterval(start: start, end: start.addingTimeInterval(1200))
+        )
+        #expect(summary.totalSeconds == 1200)
+        #expect(summary.byApplication.first?.bundleID == browser.bundleID)
+        #expect(summary.byApplication.first?.seconds == 900)
+        #expect(summary.switches == 2)
+        #expect(summary.longestApplicationStretch == 600)
+    }
+
+    @Test func testApplicationSegmentsPersistAndOverlapsAreClippedOnRestore() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("still-app-tests-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let app = ForegroundApplication(bundleID: "com.apple.Safari", name: "Safari")
+        let first = ApplicationUsageSegment(startedAt: origin, endedAt: origin.addingTimeInterval(100), seconds: 100, application: app)
+        let second = ApplicationUsageSegment(startedAt: origin.addingTimeInterval(50), endedAt: origin.addingTimeInterval(150), seconds: 100, application: app)
+        do {
+            let repository = try UsageRepository(directory: folder)
+            _ = try repository.load()
+            try repository.save(segments: [], applicationSegments: [first, second], breaks: [])
+        }
+        let loaded = try UsageRepository(directory: folder).load()
+        #expect(loaded.applicationSegments.count == 2)
+        let engine = UsageEngine(applicationSegments: loaded.applicationSegments)
+        #expect(engine.applicationSegments.count == 1)
+        #expect(abs(engine.applicationSegments[0].seconds - 150) < 0.001)
+    }
+
+    @Test func testClearedApplicationHistoryStaysClearedAfterRelaunch() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("still-clear-tests-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let app = ForegroundApplication(bundleID: "com.apple.Safari", name: "Safari")
+        let segment = ApplicationUsageSegment(
+            startedAt: origin,
+            endedAt: origin.addingTimeInterval(100),
+            seconds: 100,
+            application: app
+        )
+        do {
+            let repository = try UsageRepository(directory: folder)
+            _ = try repository.load()
+            try repository.save(segments: [], applicationSegments: [segment], breaks: [])
+            try repository.save(segments: [], applicationSegments: [], breaks: [])
+        }
+        let loaded = try UsageRepository(directory: folder).load()
+        #expect(loaded.applicationSegments.isEmpty)
     }
 
     @Test func testFatigueIncreasesAndCapsDisplayAt100Percent() {

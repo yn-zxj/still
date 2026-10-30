@@ -90,6 +90,10 @@ jobs:
           EOF
 
           {
+            if [ -f "docs/releases/$version.md" ]; then
+              cat "docs/releases/$version.md"
+              echo
+            fi
             echo "## 息间 ${version} (${build})"
             echo
             echo "- macOS ${minimum} 或更高版本"

@@ -9,7 +9,10 @@ struct StillMain {
         let application = NSApplication.shared
         let delegate = AppDelegate()
         application.delegate = delegate
-        application.setActivationPolicy(.regular)
+        let dockVisible = UserDefaults.standard.data(forKey: "settings.v1")
+            .flatMap { try? JSONDecoder().decode(MonitorSettings.self, from: $0) }
+            .map(\.dockIconVisible) ?? true
+        application.setActivationPolicy(dockVisible ? .regular : .accessory)
         withExtendedLifetime(delegate) { application.run() }
     }
 }
@@ -23,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let postureAlerts = PostureAlertController()
     private var visibilityObserver: NSObjectProtocol?
+    private var popoverEventMonitors: [Any] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let identifier = Bundle.main.bundleIdentifier,
@@ -52,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindow.center()
         setupStatusItem()
         model.applyAppearance = { [weak self] in self?.applyWindowAppearance() }
+        model.applyDockVisibility = { [weak self] in self?.applyDockVisibility() }
         model.showDashboard = { [weak self] in self?.showMainWindow() }
         model.showPreview = { [weak self] in self?.presentRest(.preview) }
         model.showReminder = { [weak self] in self?.presentRest(.due) }
@@ -63,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.posture.onAlert = { [weak self] issue in self?.presentPostureAlert(issue) }
         model.posture.onPreview = { [weak self] issue in self?.presentPostureAlert(issue, preview: true) }
         applyWindowAppearance()
+        installPopoverDismissMonitors()
         showMainWindow()
         refreshStatusItem()
         if ProcessInfo.processInfo.arguments.contains("--preview-rest") { presentRest(.preview) }
@@ -104,6 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MenuPanelView(model: model,
             open: { [weak self] in self?.popover.performClose(nil); self?.showMainWindow() },
+            insights: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.model.page = .insights
+                self?.showMainWindow()
+            },
             settings: { [weak self] in self?.popover.performClose(nil); self?.openSettings() },
             close: { [weak self] in self?.popover.performClose(nil) }))
     }
@@ -130,6 +141,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func installPopoverDismissMonitors() {
+        let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.popover.isShown else { return }
+                self.popover.performClose(nil)
+            }
+        }
+        let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, self.popover.isShown else { return event }
+            if event.window === self.statusItem.button?.window { return event }
+            if event.window !== self.popover.contentViewController?.view.window {
+                self.popover.performClose(nil)
+            }
+            return event
+        }
+        popoverEventMonitors = [global, local].compactMap { $0 }
+    }
+
     private func presentRest(_ presentation: RestPresentation) {
         if model.settings.reminderStyle == .notification && presentation != .resting {
             if presentation != .preview { reminders?.close() }
@@ -151,6 +180,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         postureAlerts.appearance = appearance
     }
 
+    private func applyDockVisibility() {
+        let policy: NSApplication.ActivationPolicy = model.settings.dockIconVisible ? .regular : .accessory
+        guard NSApplication.shared.activationPolicy() != policy else { return }
+        NSApplication.shared.setActivationPolicy(policy)
+        if policy == .regular {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+    }
+
     private func presentPostureAlert(_ issue: PostureIssue, preview: Bool = false) {
         postureAlerts.show(issue: issue, playful: model.settings.posturePlayful,
             displaySeconds: model.settings.postureThresholds.displaySeconds, preview: preview)
@@ -168,7 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     func applicationDidBecomeActive(_ notification: Notification) { updateAnimationVisibility(); model?.refreshNotificationStatus() }
     func applicationDidResignActive(_ notification: Notification) { model?.appIsActive = false }
-    func applicationWillTerminate(_ notification: Notification) { model?.shutdown() }
+    func applicationWillTerminate(_ notification: Notification) {
+        popoverEventMonitors.forEach(NSEvent.removeMonitor)
+        popoverEventMonitors.removeAll()
+        model?.shutdown()
+    }
 }
 
 private extension AppearanceTheme {

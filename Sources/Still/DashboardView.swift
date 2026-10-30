@@ -23,6 +23,7 @@ struct DashboardView: View {
                                 case .posture: PostureView(model: model, monitor: model.posture)
                                 case .courses: EmptyView()
                                 case .today: TodayView(model: model)
+                                case .insights: InsightsView(model: model)
                                 case .history: HistoryView(model: model)
                                 case .rules: RulesView(model: model)
                                 case .settings: PreferencesView(model: model)
@@ -75,7 +76,7 @@ struct DashboardView: View {
                     Text("息间").font(.system(size: 22, weight: .semibold, design: .rounded)).tracking(2)
                 }
             }.padding(.leading, 18).padding(.top, 55).padding(.bottom, 40)
-            ForEach([Page.today, .courses, .history, .rules], id: \.self) { page in
+            ForEach([Page.today, .insights, .courses, .history, .rules], id: \.self) { page in
                 navItem(page)
             }
             if model.settings.postureEnabled { navItem(.posture) }
@@ -239,29 +240,44 @@ struct DayTimeline: View {
     let segments: [UsageSegment]
     let date: Date
     var body: some View {
-        let interval = Calendar.current.dateInterval(of: .day, for: date)!
+        let window = DayTimelineWindow(date: date, now: date)
         VStack(spacing: 9) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 6).fill(Palette.background)
                     ForEach(0..<24, id: \.self) { hour in
-                        Rectangle().fill(Palette.surface.opacity(0.9)).frame(width: 2).offset(x: geo.size.width * Double(hour) / 24)
+                        if let mark = Calendar.current.date(byAdding: .hour, value: hour, to: window.day.start),
+                           mark <= window.visible.end {
+                            Rectangle()
+                                .fill(Palette.surface.opacity(0.9))
+                                .frame(width: 2)
+                                .offset(x: geo.size.width * window.fraction(for: mark))
+                        }
                     }
-                    ForEach(segments.filter { $0.seconds(in: interval) > 0 }) { segment in
-                        let start = max(segment.startedAt, interval.start)
-                        let end = min(segment.endedAt, interval.end)
-                        let length = interval.duration
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(segment.mode == .reading ? Palette.green.opacity(0.65) : Palette.accent.opacity(0.7))
-                            .frame(width: max(2, geo.size.width * end.timeIntervalSince(start) / length), height: 18)
-                            .offset(x: geo.size.width * start.timeIntervalSince(interval.start) / length)
+                    ForEach(segments.filter { $0.seconds(in: window.visible) > 0 }) { segment in
+                        if let end = window.visibleEnd(for: segment.startedAt, end: segment.endedAt) {
+                            let start = max(segment.startedAt, window.visible.start)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(segment.mode == .reading ? Palette.green.opacity(0.65) : Palette.accent.opacity(0.7))
+                                .frame(width: max(2, geo.size.width * end.timeIntervalSince(start) / window.visible.duration), height: 18)
+                                .offset(x: geo.size.width * start.timeIntervalSince(window.visible.start) / window.visible.duration)
+                        }
                     }
                 }.clipShape(RoundedRectangle(cornerRadius: 6))
             }.frame(height: 18)
-            HStack { ForEach(["00:00", "06:00", "12:00", "18:00", "24:00"], id: \.self) { label in
-                Text(label).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.secondary.opacity(0.8))
-                if label != "24:00" { Spacer() }
-            } }
+            GeometryReader { geo in
+                ForEach(window.marks(), id: \.self) { mark in
+                    Text(timelineTimeText(mark))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Palette.secondary.opacity(0.8))
+                        .frame(width: 48)
+                        .position(
+                            x: min(max(24, geo.size.width * window.fraction(for: mark)), geo.size.width - 24),
+                            y: 7
+                        )
+                }
+            }
+            .frame(height: 14)
         }.accessibilityElement(children: .ignore).accessibilityLabel("今日使用时间分布")
     }
 }

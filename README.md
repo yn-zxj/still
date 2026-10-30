@@ -1,4 +1,4 @@
-# 息间 0.4.3
+# 息间 0.5.0
 
 给每一段专注，留一点余地。
 
@@ -13,9 +13,10 @@
 默认工作 45 分钟、休息 5 分钟，键鼠空闲阈值 90 秒。中文应用名为“息间”，英文工程目录及内部标识使用 Still。
 
 - 今天：疲劳百分比、下一次休息倒计时、今日使用、完成休息、最长一轮、全天使用分布。
+- 时间去向：今天/7 天/28 天的前台应用时间流、类别构成、应用排行和切换情况；通过 HAPI 汇总本机及其它机器上的 Codex、Claude Code 等 Agent 会话。时间轴只画到当前时刻。
 - 使用记录：真实的 7 天/28 天历史、最近休息、CSV 导出。
 - 休息规则：全屏弹窗、迷你弹窗、系统通知三选一；自定义文案、今日时长显示、独立预览；三组预设和自定义时长、活动估算/持续阅读、空闲及重复提醒间隔。
-- 偏好设置：提醒与统计分别暂停、声音、动效、可选登录启动、坐姿功能开关及 GitHub Release 检查更新。
+- 偏好设置：提醒与统计分别暂停、声音、动效、Agent/HAPI 同步、隐藏 Dock 图标、可选登录启动、坐姿功能开关及 GitHub Release 检查更新。
 - 坐姿关照：4 秒个人校准，头部/肩部实时关键点，本机 Lightweight OpenPose + Apple Vision，支持后台分析、暂停、顶部纯文字置顶提醒；正常前后移动保留参照。规则里的数字可原位编辑，回车或移开焦点自动保存，修改后即时生效并保留校准，支持恢复默认。默认累计 12 秒触发、展示 5 秒、冷却 60 秒；12 条吐槽和 4 条温柔提醒按动作类型轮换。
 - 休息窗口：全屏或迷你倒计时、呼吸花、疲劳百分比、提前结束、延后和跳过。全屏可按 Esc 或退出按钮关闭。
 - 疲劳值：显示在今日概览、菜单栏、快捷面板和休息窗口中。使用时增加、休息时减少，范围 0–100%。
@@ -33,6 +34,7 @@
 ## 数据位置
 
 - 记录：`~/Library/Application Support/Still/usage.sqlite` 及其 WAL/SHM 文件。
+- Agent 会话摘要：`~/Library/Application Support/Still/AgentActivity.json`，保留 31 天、权限 0600。
 - 设置与检查点：UserDefaults 域 `local.still.app`。
 - 状态变化、约每 20 秒和正常退出时保存。
 
@@ -60,6 +62,10 @@ GitHub Actions 会在 `main` 推送、`v*` 标签、Pull Request 和手动触发
 ```text
 Sources/StillCore/
   Models.swift                 数据、配置、按日汇总
+  ApplicationInsights.swift    应用去向汇总、类别与跨日统计
+  AgentActivity.swift          HAPI 协议、会话归并和 Agent 时间统计
+  AgentActivityStore.swift     Agent 会话摘要持久化
+  DayTimelineWindow.swift      截止当前时刻的日时间轴坐标
   UsageEngine.swift            可控时间的纯计时状态机
   UsageRepository.swift        Core Data 本地数据库
 Sources/Still/
@@ -68,6 +74,8 @@ Sources/Still/
   Main.swift                   应用、菜单栏和窗口生命周期
   DesignSystem.swift          配色、按钮、呼吸花
   DashboardView.swift          今日与侧栏
+  InsightsView.swift           时间去向、时间流和类别图表
+  AgentActivityCoordinator.swift HAPI 定位、版本门槛、同步与状态
   DetailViews.swift            历史、规则与设置
   ReminderSettingsView.swift   提醒方式、文案与预览设置
   ReminderWindowController.swift 全屏与迷你提醒窗口管理
@@ -79,6 +87,18 @@ Tests/StillCoreTests/         Swift Testing 边界测试
 
 `scripts/make-icon.swift` 可重建原生矢量绘制的 PNG 与 iconset，再使用系统 `iconutil` 生成 ICNS。
 
+## 时间去向
+
+“时间去向”参考了 [Weft](https://github.com/tiann/weft) 展示一天时间流向的思路，代码和视觉均为息间的独立实现。当前版本只采样前台应用，不读取窗口标题、网页地址或屏幕内容，也不需要辅助功能权限。与总使用时长的差值会明确显示为应用明细覆盖率，不会把未识别时间伪装成某个应用。
+
+应用明细从 0.5.0 开始积累，升级前的使用记录仍保留在“使用记录”中，但不会伪造历史应用名称。暂停统计、屏幕睡眠和无活动状态遵循原有计时口径。类别由内置规则按应用名称与标识粗略归类，未知应用会进入“其他应用”；这些数据用于个人回顾，不是员工监控或精确工时证明。
+
+Agent 时间同样参考 Weft 的 HAPI 接入方式，使用 `hapi.activity.v1`、`hapi usage --json` 和 HAPI 0.30 的最低版本门槛。应用只保存会话标题、项目路径、Agent 类型、机器名称和工作时段，不保存 prompt、回复或代码内容。同步由本机 `hapi` 直接连接用户配置的 HAPI Hub；相同 `session.id` 重复同步会合并，等待用户回复的 `waits` 会从工作时间扣除，本机已读过且由 HAPI 返回的会话也统一进入时间去向。
+
+本机没有安装 `hapi`，因此普通应用只验收了“未找到 hapi”的状态和安全边界；模拟 CLI 覆盖了成功同步、远端机器、重复会话、等待扣除、退出码和持久化。真实 Hub 登录、跨机器会话和不同 HAPI 版本仍需安装对应 CLI 后验收。
+
+隐私边界、统计口径与已知限制见 [时间去向](docs/TIME_INSIGHTS.md)。
+
 ## 当前范围和待验收项
 
 - 本地编译产物为 arm64 + x86_64 通用二进制，使用临时本地签名；尚未做 Developer ID 签名、公证或 App Store 发布。部署目标为 macOS 13；测试框架本身需要 macOS 14 及以上。
@@ -88,6 +108,7 @@ Tests/StillCoreTests/         Swift Testing 边界测试
 - 不请求键盘监听、摄像头或屏幕录制权限；只查询系统输入空闲时间。纯键盘输入、远程输入、不同权限环境仍需真实使用验收，不能用自动化 AX 点击代替这一测试。
 - 系统通知需在应用内主动允许，未授权时会显示明确提示；通知提供开始休息和延后操作，预览通知不会产生休息记录。已验证未授权提示；成功送达与通知操作回调尚未实机验收。开发验证未替用户授予权限或开启登录启动。
 - 支持浅色、深色与跟随系统三种外观；主窗口、菜单栏面板、提醒窗口和课程页面共用动态配色。动效已支持系统减少动态效果。
+- 快捷面板点击应用外部会自动收起；隐藏 Dock 图标后菜单栏入口、计时和提醒继续工作，也可从设置立即恢复 Dock 图标。
 - 后续应进行真实 45 分钟周期、多屏、合盖/唤醒、锁屏和长时能耗验收。
 
 应用支持 `--ui-test`（内存数据且不恢复真实设置）、`--short-rest`（仅在 UI 测试模式下把手动休息缩短到 5 秒）和 `--preview-rest`（打开外观预览）等开发参数。默认启动不会使用它们。

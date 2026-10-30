@@ -18,7 +18,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.4.3 / build 10（本轮待发布）
+## 当前实现：0.5.0 / build 11（本轮待发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -26,9 +26,11 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 | --- | --- |
 | 计时 | 默认 45/5；自定义规则；活动估算/持续阅读；空闲回溯；睡眠/会话暂停；重启检查点 |
 | 统计 | 今日、7/28 天、使用分布、最近休息、CSV 导出 |
+| 时间去向 | 默认开启的本机前台应用明细；今天时间流、7/28 天类别趋势、应用排行、切换与最长停留；可停止记录、清除明细并随 CSV 导出 |
+| Agent 时间 | HAPI 0.30+ 只读同步 `hapi.activity.v1`；本机/远程机器、会话去重、等待扣除、墙钟并集；Agent 摘要 31 天本地保存 |
 | 提醒 | 全屏、迷你窗、系统通知；独立预览；延后、跳过、提前结束；暂停提醒与暂停统计分开 |
 | 疲劳 | 0–100% 计时估算；工作增加、休息降低；并非医学测量 |
-| UI | 雾紫/薄荷双主题、浅色/深色/跟随系统、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果 |
+| UI | 雾紫/薄荷双主题、浅色/深色/跟随系统、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果、截止当前时刻的时间轴、可隐藏 Dock 图标 |
 | 持久化 | `~/Library/Application Support/Still/usage.sqlite`；UserDefaults `local.still.app` |
 | 生命周期 | 菜单栏常驻、关闭窗口继续统计、单实例保护、可选登录启动 |
 | 更新 | GitHub Release 检查、每日自动检查、Keychain 私有只读令牌、架构匹配下载及 SHA-256 校验，手动替换安装 |
@@ -53,7 +55,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。发布产物为 arm64 + x86_64 通用二进制，使用本地临时签名，尚无 Developer ID 签名或公证。此前 `v0.4.2` 虽然声明 macOS 13+，但实际只有 arm64；Intel 用户应改用 0.4.3 通用版。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 104 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 108 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -278,3 +280,26 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - GitHub Actions 拆为通用包构建、macOS 14 Apple Silicon 运行验证、`macos-15-intel` 原生运行验证和发布四个阶段；发布 job 以三项全部成功为前提。Release 清单新增最低系统和双架构字段，更新器可识别 `x86_64-arm64` 通用 ZIP。
 - 本机 104 项测试通过（74 核心 + 30 资源/网络/模型），arm64 与 x86_64 交叉编译均成功；最终 `dist/息间.app` 为 `x86_64 arm64` 通用二进制，两个切片的 `LC_BUILD_VERSION minos` 均为 13.0，严格签名、模型摘要及许可证校验通过。arm64 普通包通过 `--verify-bundle`，确认 `0.4.3 (10)` 且模型可加载。
 - 当前 Apple Silicon 本机没有安装 Rosetta，因此无法在本机启动 x86_64 切片；已记录其 Mach-O/最低系统/签名证据，Intel 原生启动留给 `macos-15-intel` CI。macOS 14 ARM runner 与 Intel runner 的云端结果、提交、标签和下载后附件审计将在发布完成后补充；不能用交叉编译替代真机运行验收，也不能声称已在实体 Intel + macOS 14 机器上试装。
+
+#### 0.4.3 发布与附件审计
+
+- 实现提交 `eb770ee`、标签 `v0.4.3` 已推送。主分支 run `40994681947` 与标签 run `40994695402` 均成功；macOS 14 arm64 与 `macos-15-intel` 原生 runner 均通过打包应用的启动/模型检查，仓库复核仍为 PRIVATE。
+- Release：https://github.com/yn-zxj/still/releases/tag/v0.4.3 。正式附件为 `Still-0.4.3-10-x86_64-arm64-macos.zip`、`.sha256` 与 `artifact-manifest.json`。
+- 已重新下载 Release 审计：ZIP SHA-256 `f5c0fec8a5451b270c32d24f4287fcf81f6ac29946bd9bf689fe836be6e7cc52` 与侧车和 GitHub 摘要一致，压缩完整；Bundle 为 `local.still.app`、0.4.3 (10)、`x86_64 arm64`，两个切片最低系统均为 macOS 13.0，严格签名、OpenPose 模型摘要与许可证检查通过。
+- 本轮闭环的是 Apple Silicon 本机与 CI 中的原生 Intel 启动；没有在同事的实体 Intel macOS 14 机器上重新试装。产物仍为 ad-hoc 签名，未使用 Developer ID 或 Apple 公证。
+
+### 0.5.0 时间去向
+
+- 参考 Weft 展示一天时间方向的交互思路，独立实现“时间去向”：今天 24 小时时间流、近 7/28 天类别趋势、应用排行、类别构成、应用切换、每小时切换频率、最长连续停留与应用图标。动效尊重应用内开关及系统减少动态效果。
+- `SystemActivityMonitor` 在原有计时采样中读取前台应用的本地化名称与 Bundle Identifier，`UsageEngine` 仅在总计时规则允许时保存应用停留段。类别按本地规则归纳为开发、沟通、效率、浏览、设计、媒体、学习、工具和其他；不读取窗口标题、网页地址、截图、输入内容或媒体画面，也不需要辅助功能权限。
+- 应用明细保存在原 `usage.sqlite` 的新 Core Data 实体中，随现有约 20 秒/状态变化保存；设置页可关闭后续记录或确认清除应用明细，总使用与休息历史不受影响。CSV 增加应用行。清除后重新启动仍保持为空已新增数据库级回归测试。
+- 0.5.0 首次启动已从真实 0.4.3 使用数据库轻量迁移并通过普通应用读取；升级前总记录保留，但不会伪造此前的应用历史。关闭功能保留已有明细，重新开启继续积累。
+- 页面首轮普通应用验收发现并修正：不足一分钟曾显示“0 分钟”、覆盖率小于 1% 时显示 0%，以及一分钟样本展示夸张的每小时切换数。现在短时显示“不足1分钟”、非零覆盖率/占比显示 `<1%`；切换频率至少积累 10 分钟才展示。
+- 快捷面板新增紧凑“时间去向”卡片，展示今日应用总时长、类别条、前三应用和 Agent 汇总，点击直达完整页面。`NSPopover` 保留系统 transient 行为并增加应用内外点击监听；普通应用实际切换到访达后自动收起。
+- 状态栏快捷面板和主页面日时间轴只绘制到当前时刻，刻度以 00、06、12 等整点加当前时刻收尾；7/28 天图仍显示完整历史日期。主窗口“今日”、时间去向和快捷面板使用同一 `DayTimelineWindow` 口径。
+- 设置页增加隐藏 Dock 图标。普通应用实测关闭后 `lsappinfo` 类型从 `Foreground` 变为 `UIElement`，应用窗口仍在，菜单栏快捷面板仍可打开；恢复开关后类型回到 `Foreground`。
+- HAPI 接入参考 Weft 的协议实现，但存储、归并、进程调用、超时、界面和测试都是息间独立代码。先检查 `hapi --version`，只接受 0.30.0+；`hapi usage --json --since/--until` 返回 `hapi.activity.v1`。以 `hapi:<session.id>` 去重，扣除 `waits`，墙钟时间按区段并集计算，远程机器优先展示 `machineName`。
+- Agent 数据单独写入 `~/Library/Application Support/Still/AgentActivity.json`，保留 31 天、权限 0600，不写入仓库。只保存会话标题、项目路径、Agent 类型、机器与时段，不保存 prompt、回复、代码、终端输出或凭据。
+- 本轮最终本地 118 项测试通过（84 核心 + 34 资源/网络/模型）。新增 HAPI schema、重复会话、等待扣除、远端机器、墙钟并集、31 天持久化、版本门槛、二进制定位、退出码 3/4、模拟 CLI 完整同步与重同步去重，以及时间轴截止当前时刻回归。
+- 普通 `dist/息间.app` 已检查时间去向、Agent 空状态、状态栏时间去向卡片、外部点击收起、Dock 隐藏/恢复及菜单栏入口。真实课程、设置和使用数据库继续原样保留。
+- 本机没有安装 `hapi`，因此普通应用正确显示“未找到 hapi”；真实 Hub 登录、跨机器会话、长时间同步失败恢复未实机验收，不能用模拟 CLI 结果替代。发布结果将在正式提交、标签和云端附件审计后补充。

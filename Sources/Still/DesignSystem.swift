@@ -32,6 +32,17 @@ enum Palette {
     }
 }
 
+private let stillTimelineFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "HH:mm"
+    return formatter
+}()
+
+func timelineTimeText(_ date: Date) -> String {
+    stillTimelineFormatter.string(from: date)
+}
+
 extension Color {
     init(hex: UInt32) { self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1) }
 }

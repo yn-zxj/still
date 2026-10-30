@@ -13,6 +13,17 @@ enum LucidePaths {
             p.addLine(to: CGPoint(x: 22, y: 8))
             p.move(to: CGPoint(x: 6, y: 4))
             p.addLine(to: CGPoint(x: 6, y: 8))
+        case "arrow-left-right":
+            p.move(to: CGPoint(x: 8, y: 3))
+            p.addLine(to: CGPoint(x: 4, y: 7))
+            p.addLine(to: CGPoint(x: 8, y: 11))
+            p.move(to: CGPoint(x: 4, y: 7))
+            p.addLine(to: CGPoint(x: 20, y: 7))
+            p.move(to: CGPoint(x: 16, y: 21))
+            p.addLine(to: CGPoint(x: 20, y: 17))
+            p.addLine(to: CGPoint(x: 16, y: 13))
+            p.move(to: CGPoint(x: 20, y: 17))
+            p.addLine(to: CGPoint(x: 4, y: 17))
         case "bell-off":
             p.move(to: CGPoint(x: 10.268, y: 21))
             p.addCurve(to: CGPoint(x: 12, y: 21.999912), control1: CGPoint(x: 10.6252789, y: 21.6187526), control2: CGPoint(x: 11.2855051, y: 21.999912))
@@ -87,10 +98,25 @@ enum LucidePaths {
             p.addLine(to: CGPoint(x: 12, y: 3))
             p.move(to: CGPoint(x: 19, y: 21))
             p.addLine(to: CGPoint(x: 19, y: 9))
+        case "chart-pie":
+            p.move(to: CGPoint(x: 21, y: 12))
+            p.addCurve(to: CGPoint(x: 21.95, y: 11.002), control1: CGPoint(x: 21.552, y: 11.551), control2: CGPoint(x: 21.95, y: 11.6))
+            p.addCurve(to: CGPoint(x: 13, y: 2.05), control1: CGPoint(x: 21.95, y: 6.29), control2: CGPoint(x: 18.09, y: 2.39))
+            p.addCurve(to: CGPoint(x: 12, y: 3), control1: CGPoint(x: 12.55, y: 2.0), control2: CGPoint(x: 12.1, y: 2.45))
+            p.addLine(to: CGPoint(x: 12, y: 11))
+            p.addCurve(to: CGPoint(x: 13, y: 12), control1: CGPoint(x: 12.45, y: 11.55), control2: CGPoint(x: 12.55, y: 12))
+            p.closeSubpath()
+            p.move(to: CGPoint(x: 21.21, y: 15.89))
+            p.addCurve(to: CGPoint(x: 2.84, y: 8), control1: CGPoint(x: 17.92, y: 21.38), control2: CGPoint(x: 5.94, y: 17.46))
+            p.addCurve(to: CGPoint(x: 15.89, y: 21.21), control1: CGPoint(x: 3.13, y: 18.63), control2: CGPoint(x: 8.79, y: 22.18))
         case "chevron-down":
             p.move(to: CGPoint(x: 6, y: 9))
             p.addLine(to: CGPoint(x: 12, y: 15))
             p.addLine(to: CGPoint(x: 18, y: 9))
+        case "chevron-right":
+            p.move(to: CGPoint(x: 9, y: 18))
+            p.addLine(to: CGPoint(x: 15, y: 12))
+            p.addLine(to: CGPoint(x: 9, y: 6))
         case "circle-check":
             p.addEllipse(in: CGRect(x: 2, y: 2, width: 20, height: 20))
             p.move(to: CGPoint(x: 16, y: 9))
@@ -253,6 +279,16 @@ enum LucidePaths {
             p.addCurve(to: CGPoint(x: 5.63, y: 6.64), control1: CGPoint(x: 2.173868, y: 15.8593403), control2: CGPoint(x: 2.1434777, y: 10.171782))
         case "rectangle-vertical":
             p.addRoundedRect(in: CGRect(x: 6, y: 2, width: 12, height: 20), cornerSize: CGSize(width: 2, height: 2))
+        case "radio":
+            p.addEllipse(in: CGRect(x: 10, y: 10, width: 4, height: 4))
+            p.move(to: CGPoint(x: 7.8, y: 7.8))
+            p.addCurve(to: CGPoint(x: 7.8, y: 16.2), control1: CGPoint(x: 5.5, y: 10.1), control2: CGPoint(x: 5.5, y: 13.9))
+            p.move(to: CGPoint(x: 16.2, y: 7.8))
+            p.addCurve(to: CGPoint(x: 16.2, y: 16.2), control1: CGPoint(x: 18.5, y: 10.1), control2: CGPoint(x: 18.5, y: 13.9))
+            p.move(to: CGPoint(x: 4.9, y: 4.9))
+            p.addCurve(to: CGPoint(x: 4.9, y: 19.1), control1: CGPoint(x: 1, y: 8.8), control2: CGPoint(x: 1, y: 15.2))
+            p.move(to: CGPoint(x: 19.1, y: 4.9))
+            p.addCurve(to: CGPoint(x: 19.1, y: 19.1), control1: CGPoint(x: 23, y: 8.8), control2: CGPoint(x: 23, y: 15.2))
         case "scan-face":
             p.move(to: CGPoint(x: 3, y: 7))
             p.addLine(to: CGPoint(x: 3, y: 5))
@@ -402,6 +438,12 @@ enum LucidePaths {
             p.move(to: CGPoint(x: 19.364, y: 18.364))
             p.addCurve(to: CGPoint(x: 22.0000779, y: 12), control1: CGPoint(x: 21.0518512, y: 16.6761694), control2: CGPoint(x: 22.0000779, y: 14.3869675))
             p.addCurve(to: CGPoint(x: 19.364, y: 5.636), control1: CGPoint(x: 22.0000779, y: 9.6130325), control2: CGPoint(x: 21.0518512, y: 7.3238306))
+        case "terminal":
+            p.move(to: CGPoint(x: 4, y: 17))
+            p.addLine(to: CGPoint(x: 10, y: 11))
+            p.addLine(to: CGPoint(x: 4, y: 5))
+            p.move(to: CGPoint(x: 12, y: 19))
+            p.addLine(to: CGPoint(x: 20, y: 19))
         case "x":
             p.move(to: CGPoint(x: 18, y: 6))
             p.addLine(to: CGPoint(x: 6, y: 18))

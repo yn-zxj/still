@@ -39,6 +39,11 @@ public struct MonitorSettings: Codable, Equatable {
     public var postureEnabled = false
     public var posturePlayful = true
     public var postureThresholds = PostureThresholds()
+    public var applicationInsightsEnabled = true
+    public var agentActivityEnabled = true
+    public var hapiSyncEnabled = true
+    public var hapiExecutablePath = ""
+    public var dockIconVisible = true
     public var automaticUpdateChecks = true
     // Kept in the Codable shape so older settings continue to decode.
     // The menu bar now always shows only the icon and fatigue percentage.
@@ -51,7 +56,8 @@ public struct MonitorSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes, mode
         case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
-        case postureEnabled, posturePlayful, postureThresholds, automaticUpdateChecks
+        case postureEnabled, posturePlayful, postureThresholds, applicationInsightsEnabled
+        case agentActivityEnabled, hapiSyncEnabled, hapiExecutablePath, dockIconVisible, automaticUpdateChecks
         case showMenuFatigue, reminderStyle, reminderMessage, showDailyTimeInReminder
     }
     public init(from decoder: Decoder) throws {
@@ -71,6 +77,11 @@ public struct MonitorSettings: Codable, Equatable {
         postureEnabled = try c.decodeIfPresent(Bool.self, forKey: .postureEnabled) ?? postureEnabled
         posturePlayful = try c.decodeIfPresent(Bool.self, forKey: .posturePlayful) ?? posturePlayful
         postureThresholds = try c.decodeIfPresent(PostureThresholds.self, forKey: .postureThresholds) ?? postureThresholds
+        applicationInsightsEnabled = try c.decodeIfPresent(Bool.self, forKey: .applicationInsightsEnabled) ?? applicationInsightsEnabled
+        agentActivityEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentActivityEnabled) ?? agentActivityEnabled
+        hapiSyncEnabled = try c.decodeIfPresent(Bool.self, forKey: .hapiSyncEnabled) ?? hapiSyncEnabled
+        hapiExecutablePath = try c.decodeIfPresent(String.self, forKey: .hapiExecutablePath) ?? hapiExecutablePath
+        dockIconVisible = try c.decodeIfPresent(Bool.self, forKey: .dockIconVisible) ?? dockIconVisible
         automaticUpdateChecks = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecks) ?? automaticUpdateChecks
         showMenuCountdown = try c.decodeIfPresent(Bool.self, forKey: .showMenuCountdown) ?? showMenuCountdown
         showMenuFatigue = try c.decodeIfPresent(Bool.self, forKey: .showMenuFatigue) ?? showMenuFatigue
@@ -135,8 +146,11 @@ public struct ActivitySample {
     public var monotonic: Double
     public var idleSeconds: Double
     public var available: Bool
-    public init(date: Date, monotonic: Double, idleSeconds: Double, available: Bool = true) {
-        self.date = date; self.monotonic = monotonic; self.idleSeconds = idleSeconds; self.available = available
+    public var foregroundApplication: ForegroundApplication?
+    public init(date: Date, monotonic: Double, idleSeconds: Double, available: Bool = true,
+                foregroundApplication: ForegroundApplication? = nil) {
+        self.date = date; self.monotonic = monotonic; self.idleSeconds = idleSeconds
+        self.available = available; self.foregroundApplication = foregroundApplication
     }
 }
 

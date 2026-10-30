@@ -130,8 +130,28 @@ struct FullScreenRestView: View {
 struct MenuPanelView: View {
     @ObservedObject var model: AppModel
     var open: () -> Void
+    var insights: () -> Void
     var settings: () -> Void
     var close: () -> Void
+
+    private var applicationSummary: ApplicationInsights {
+        let day = Calendar.current.dateInterval(of: .day, for: model.engine.now)
+            ?? DateInterval(start: model.engine.now, duration: 86_400)
+        return ApplicationInsights.make(
+            segments: model.engine.applicationSegments,
+            interval: DateInterval(start: day.start, end: max(day.start.addingTimeInterval(1), model.engine.now))
+        )
+    }
+
+    private var agentSummary: AgentActivitySummary {
+        let day = Calendar.current.dateInterval(of: .day, for: model.engine.now)
+            ?? DateInterval(start: model.engine.now, duration: 86_400)
+        return AgentActivitySummary.make(
+            sessions: model.settings.agentActivityEnabled ? model.agentActivity.sessions : [],
+            interval: DateInterval(start: day.start, end: max(day.start.addingTimeInterval(1), model.engine.now))
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
@@ -186,6 +206,12 @@ struct MenuPanelView: View {
             }
 
             Divider().overlay(Palette.line)
+            MenuInsightsCard(
+                insights: applicationSummary,
+                agents: agentSummary,
+                enabled: model.settings.applicationInsightsEnabled,
+                action: insights
+            )
             MenuUsageChart(segments: model.engine.segments, date: model.engine.now)
             if let error = model.reminderError {
                 Text(error)
@@ -206,6 +232,140 @@ struct MenuPanelView: View {
         .foregroundStyle(Palette.ink)
         .tint(Palette.accent)
     }
+}
+
+private struct MenuInsightsCard: View {
+    let insights: ApplicationInsights
+    let agents: AgentActivitySummary
+    let enabled: Bool
+    let action: () -> Void
+    @StateObject private var state = MenuInsightsCardState()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 9) {
+                    LineIcon(systemName: "chart-pie", size: 17)
+                        .foregroundStyle(Palette.accent)
+                    Text("时间去向")
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                    Text("查看详情")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                    LineIcon(systemName: "chevron-right", size: 12)
+                        .foregroundStyle(Palette.secondary)
+                }
+
+                if insights.totalSeconds > 0 {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(durationText(insights.totalSeconds))
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                        Text("前台应用 · \(insights.applicationCount) 个")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondary)
+                        Spacer()
+                    }
+                    MenuCategoryStrip(entries: insights.byCategory, total: insights.totalSeconds)
+                    Text(topApplications)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(enabled ? "使用一会儿后，这里会出现今天的应用时间流。" : "应用明细已关闭；总计时仍会正常工作。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondary)
+                }
+
+                if !agents.sessions.isEmpty {
+                    Divider().overlay(Palette.line.opacity(0.8))
+                    HStack(spacing: 8) {
+                        LineIcon(systemName: "terminal", size: 14)
+                            .foregroundStyle(Palette.green)
+                        Text("Agent \(durationText(agents.wallSeconds))")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("· \(agents.sessions.count) 个会话")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondary)
+                        if agents.hostCount > 0 {
+                            Text("· \(agents.hostCount) 台远程机器")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Palette.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                state.hovering ? Palette.lavender.opacity(0.72) : Palette.surface.opacity(0.74),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Palette.line.opacity(0.9), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                state.hovering = inside
+            }
+        }
+        .accessibilityLabel("打开时间去向")
+    }
+
+    private var topApplications: String {
+        insights.byApplication.prefix(3).map {
+            "\($0.name) \(durationText($0.seconds))"
+        }.joined(separator: "  ·  ")
+    }
+}
+
+private struct MenuCategoryStrip: View {
+    let entries: [CategoryTime]
+    let total: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Palette.background)
+                ForEach(slices) { slice in
+                    Capsule()
+                        .fill(slice.entry.category.color)
+                        .frame(width: max(2, proxy.size.width * slice.width - 1.5))
+                        .offset(x: proxy.size.width * slice.start)
+                }
+            }
+        }
+        .frame(height: 7)
+        .clipShape(Capsule())
+        .accessibilityHidden(true)
+    }
+
+    private struct Slice: Identifiable {
+        let entry: CategoryTime
+        let start: Double
+        let width: Double
+        var id: String { entry.id }
+    }
+
+    private var slices: [Slice] {
+        var cursor = 0.0
+        return entries.map { entry in
+            let width = entry.seconds / max(total, 1)
+            defer { cursor += width }
+            return Slice(entry: entry, start: cursor, width: width)
+        }
+    }
+}
+
+private final class MenuInsightsCardState: ObservableObject {
+    @Published var hovering = false
 }
 
 private struct MenuMetricCard: View {
@@ -309,7 +469,11 @@ private struct MenuUsageChart: View {
     @StateObject private var revealState = MenuUsageChartRevealState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var values: [Double] {
+    private var window: DayTimelineWindow {
+        DayTimelineWindow(date: date, now: date)
+    }
+
+    private var allValues: [Double] {
         let calendar = Calendar.current
         guard let day = calendar.dateInterval(of: .day, for: date) else { return Array(repeating: 0, count: 24) }
         return (0..<24).map { hour in
@@ -318,6 +482,10 @@ private struct MenuUsageChart: View {
             let interval = DateInterval(start: start, end: min(end, day.end))
             return min(1, segments.reduce(0) { $0 + $1.seconds(in: interval) } / interval.duration)
         }
+    }
+
+    private var values: [Double] {
+        Array(allValues.prefix(window.reducedSampleCount(varCount: allValues.count)))
     }
 
     private var latestIndex: Int? {
@@ -381,7 +549,7 @@ private struct MenuUsageChart: View {
                                 .frame(width: 7, height: 7)
                                 .shadow(color: Palette.accent.opacity(0.28), radius: 3)
                                 .offset(
-                                    x: size.width * (CGFloat(latestIndex) + 0.5) / 24 - 3.5,
+                                    x: size.width * (CGFloat(latestIndex) + 0.5) / CGFloat(max(1, values.count)) - 3.5,
                                     y: size.height * (1 - CGFloat(values[latestIndex])) - 3.5
                                 )
                         }
@@ -391,15 +559,19 @@ private struct MenuUsageChart: View {
                 .frame(height: 116)
             }
 
-            HStack(spacing: 0) {
-                ForEach(Array(["0", "6", "12", "18", "24"].enumerated()), id: \.offset) { index, label in
-                    Text(label)
+            GeometryReader { proxy in
+                ForEach(window.marks(everyHours: 6), id: \.self) { mark in
+                    Text(timelineTimeText(mark))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Palette.secondary.opacity(0.78))
-                        .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : index == 4 ? .trailing : .center)
+                        .frame(width: 40)
+                        .position(
+                            x: 44 + (proxy.size.width - 44) * window.fraction(for: mark),
+                            y: 6
+                        )
                 }
             }
-            .padding(.leading, 44)
+            .frame(height: 12)
         }
         .onAppear {
             revealState.revealed = false

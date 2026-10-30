@@ -5,12 +5,13 @@ import UserNotifications
 import StillCore
 
 enum Page: String, CaseIterable {
-    case courses = "休息课程", today = "今天", history = "使用记录", rules = "休息规则", settings = "偏好设置", posture = "坐姿关照"
+    case courses = "休息课程", today = "今天", insights = "时间去向", history = "使用记录", rules = "休息规则", settings = "偏好设置", posture = "坐姿关照"
     var icon: String {
         switch self {
         case .posture: return "person-standing"
         case .courses: return "book-open"
         case .today: return "sun.max"
+        case .insights: return "chart-pie"
         case .history: return "chart.bar.xaxis"
         case .rules: return "slider.horizontal.3"
         case .settings: return "gearshape"
@@ -31,10 +32,16 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
             if !settings.remindersEnabled || oldValue.reminderStyle != settings.reminderStyle { clearDueNotification() }
             if oldValue.appearanceTheme != settings.appearanceTheme { applyAppearance?() }
+            if oldValue.dockIconVisible != settings.dockIconVisible { applyDockVisibility?() }
             if oldValue.postureThresholds != settings.postureThresholds { posture.updateThresholds(settings.postureThresholds) }
             if oldValue.postureEnabled != settings.postureEnabled {
                 posture.configure(enabled: settings.postureEnabled, requestPermission: settings.postureEnabled)
                 if !settings.postureEnabled && page == .posture { page = .settings }
+            }
+            if oldValue.agentActivityEnabled != settings.agentActivityEnabled ||
+                oldValue.hapiSyncEnabled != settings.hapiSyncEnabled ||
+                oldValue.hapiExecutablePath != settings.hapiExecutablePath {
+                agentActivity.configure(settings)
             }
             if !oldValue.automaticUpdateChecks && settings.automaticUpdateChecks { updater.checkAutomaticallyIfNeeded() }
             refreshMenu?()
@@ -56,6 +63,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private var courseRotation = DailyCourseRotation()
     private var previewRotation = DailyCourseRotation()
     let posture: PostureMonitor
+    let agentActivity: AgentActivityCoordinator
     let updater = AppUpdater()
     let library: CourseLibrary
     let coursePlayer: CoursePlayer
@@ -76,6 +84,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     var hideReminder: (() -> Void)?
     var refreshMenu: (() -> Void)?
     var applyAppearance: (() -> Void)?
+    var applyDockVisibility: (() -> Void)?
 
     override init() {
         isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || (Bundle.main.bundleIdentifier == "local.still.preview" || Bundle.main.bundleIdentifier?.hasPrefix("local.still.preview.") == true)
@@ -87,6 +96,14 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         coursePlayer = CoursePlayer(cache: library.videoCache, diagnostics: library.diagnostics)
         defaults = isUITest ? UserDefaults(suiteName: "local.still.ui-validation")! : .standard
         posture = PostureMonitor(defaults: defaults)
+        agentActivity = AgentActivityCoordinator(
+            store: AgentActivityStore(
+                fileURL: isUITest
+                    ? FileManager.default.temporaryDirectory.appendingPathComponent("still-ui-agent-activity.json")
+                    : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                        .appendingPathComponent("Still/AgentActivity.json")
+            )
+        )
         // One-time migration from the initial development identity. Existing Still settings win.
         if !isUITest, defaults.data(forKey: "settings.v1") == nil,
            let legacy = UserDefaults(suiteName: "local.xijian.app") {
@@ -100,14 +117,18 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         monitor = SystemActivityMonitor()
         var repo: UsageRepository?
         var diskError: String?
-        var savedSegments: [UsageSegment] = [], savedBreaks: [BreakRecord] = []
+        var savedSegments: [UsageSegment] = [], savedApplications: [ApplicationUsageSegment] = []
+        var savedBreaks: [BreakRecord] = []
         do {
             repo = try UsageRepository(inMemory: isUITest)
-            let saved = try repo!.load(); savedSegments = saved.segments; savedBreaks = saved.breaks
+            let saved = try repo!.load()
+            savedSegments = saved.segments; savedApplications = saved.applicationSegments; savedBreaks = saved.breaks
         } catch { diskError = "本地记录暂时无法保存：\(error.localizedDescription)" }
         repository = repo
         let checkpoint: EngineCheckpoint? = !isUITest ? defaults.data(forKey: "checkpoint.v1").flatMap { try? JSONDecoder().decode(EngineCheckpoint.self, from: $0) } : nil
-        engine = UsageEngine(settings: initial, segments: savedSegments, breaks: savedBreaks, checkpoint: checkpoint)
+        engine = UsageEngine(settings: initial, segments: savedSegments,
+                             applicationSegments: savedApplications, breaks: savedBreaks,
+                             checkpoint: checkpoint)
         storageError = diskError
         super.init()
         if !isUITest, let data = defaults.data(forKey: "reminder.courseRotation.v1"),
@@ -115,17 +136,17 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         coursePlayer.onStart = { [weak self] duration in
             guard let self else { return }
             self.clearDueNotification(); if !self.inReminderTraining { self.hideAllReminders?() }
-            self.engine.startGuidedRest(self.monitor.sample(), duration: duration)
+            self.engine.startGuidedRest(self.currentSample(), duration: duration)
             self.save(); self.refreshMenu?()
         }
         coursePlayer.onProgress = { [weak self] elapsed, completed in
             guard let self else { return }
-            self.engine.updateGuidedRest(elapsed: elapsed, completed: completed, sample: self.monitor.sample())
+            self.engine.updateGuidedRest(elapsed: elapsed, completed: completed, sample: self.currentSample())
             if completed { self.previousCompletion = self.engine.completionSerial; self.save() }
         }
         coursePlayer.onStop = { [weak self] in
             guard let self, self.engine.guidedRest else { return }
-            self.engine.interruptRest(self.monitor.sample()); self.save(); self.refreshMenu?()
+            self.engine.interruptRest(self.currentSample()); self.save(); self.refreshMenu?()
         }
         if ProcessInfo.processInfo.arguments.contains("--courses") { page = .courses }
 
@@ -141,6 +162,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         monitor.onChange = { [weak self] in self?.tick(); self?.save() }
         posture.updateThresholds(initial.postureThresholds)
         posture.configure(enabled: initial.postureEnabled)
+        if !isUITest { agentActivity.configure(initial) }
         if initial.automaticUpdateChecks && !isUITest { updater.checkAutomaticallyIfNeeded() }
         tick()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -180,7 +202,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     func tick() {
         let previousPhase = engine.phase
-        let sample = monitor.sample()
+        let sample = currentSample()
         if !sample.available { coursePlayer.pause() }
         engine.tick(sample)
         posture.setAvailable(sample.available && engine.phase != .resting)
@@ -208,7 +230,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         if coursePlayer.active { page = .courses; showDashboard?(); return }
         clearDueNotification()
         let short = isUITest && ProcessInfo.processInfo.arguments.contains("--short-rest")
-        engine.startRest(monitor.sample(), duration: short ? 5 : nil)
+        engine.startRest(currentSample(), duration: short ? 5 : nil)
         if engine.phase == .resting { showRest?() } else { showCompletion?() }
         save(); refreshMenu?()
     }
@@ -244,9 +266,9 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     func openCourses() { hideAllReminders?(); page = .courses; showDashboard?() }
 
-    func endRest() { if coursePlayer.active { coursePlayer.stop(); return }; engine.interruptRest(monitor.sample()); hideReminder?(); save(); refreshMenu?() }
-    func snooze(skipped: Bool = false) { if coursePlayer.active { coursePlayer.stop() }; clearDueNotification(); engine.snooze(monitor.sample(), skipped: skipped); hideReminder?(); save(); refreshMenu?() }
-    func toggleTracking() { engine.setTrackingPaused(!engine.trackingPaused, sample: monitor.sample()); save(); refreshMenu?() }
+    func endRest() { if coursePlayer.active { coursePlayer.stop(); return }; engine.interruptRest(currentSample()); hideReminder?(); save(); refreshMenu?() }
+    func snooze(skipped: Bool = false) { if coursePlayer.active { coursePlayer.stop() }; clearDueNotification(); engine.snooze(currentSample(), skipped: skipped); hideReminder?(); save(); refreshMenu?() }
+    func toggleTracking() { engine.setTrackingPaused(!engine.trackingPaused, sample: currentSample()); save(); refreshMenu?() }
     func toggleReminders() {
         settings.remindersEnabled.toggle()
         if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
@@ -257,13 +279,36 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         guard !isUITest else { return }
         do {
             guard let repository else { return }
-            try repository.save(segments: engine.segments, breaks: engine.breaks)
+            try repository.save(segments: engine.segments,
+                                applicationSegments: engine.applicationSegments,
+                                breaks: engine.breaks)
             if let data = try? JSONEncoder().encode(engine.checkpoint) { defaults.set(data, forKey: "checkpoint.v1") }
             storageError = nil
         } catch { storageError = "记录保存失败：\(error.localizedDescription)" }
     }
 
     func shutdown() { posture.shutdown(); coursePlayer.shutdown(); timer?.invalidate(); save() }
+
+    private func currentSample() -> ActivitySample {
+        monitor.sample(includeForegroundApplication: settings.applicationInsightsEnabled)
+    }
+
+    func clearApplicationHistory() {
+        engine.clearApplicationSegments()
+        save()
+    }
+
+    func chooseHAPIPath() {
+        let panel = NSOpenPanel()
+        panel.title = "选择 hapi 可执行文件"
+        panel.message = "请选择 HAPI 0.30 或更高版本提供的 hapi 可执行文件。"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.hapiExecutablePath = url.path
+        }
+    }
 
     private func clearDueNotification() {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["still.due"])
@@ -366,14 +411,17 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let iso = ISO8601DateFormatter()
-        var lines = ["类型,开始时间,结束时间,使用秒数,模式或来源,结果"]
+        var lines = ["类型,开始时间,结束时间,使用秒数,模式或来源,结果,应用,应用标识,分类"]
         for segment in engine.segments where segment.seconds > 0 {
-            lines.append("使用,\(iso.string(from: segment.startedAt)),\(iso.string(from: segment.endedAt)),\(Int(segment.seconds)),\(segment.mode.title),")
+            lines.append("使用,\(iso.string(from: segment.startedAt)),\(iso.string(from: segment.endedAt)),\(Int(segment.seconds)),\(segment.mode.title),,,,")
+        }
+        for segment in engine.applicationSegments where segment.seconds > 0 {
+            lines.append("应用,\(iso.string(from: segment.startedAt)),\(iso.string(from: segment.endedAt)),\(Int(segment.seconds)),,,\(segment.applicationName),\(segment.bundleID),\(segment.category.title)")
         }
         for record in engine.breaks {
             let outcome: String
             switch record.outcome { case .completed: outcome = "完成"; case .interrupted: outcome = "提前结束"; case .skipped: outcome = "跳过"; case .inProgress: outcome = "进行中" }
-            lines.append("休息,\(iso.string(from: record.startedAt)),\(record.endedAt.map { iso.string(from: $0) } ?? ""),,\(record.source == .manual ? "手动" : "自然离开"),\(outcome)")
+            lines.append("休息,\(iso.string(from: record.startedAt)),\(record.endedAt.map { iso.string(from: $0) } ?? ""),,\(record.source == .manual ? "手动" : "自然离开"),\(outcome),,,")
         }
         do { try ("\u{FEFF}" + lines.joined(separator: "\r\n")).write(to: url, atomically: true, encoding: .utf8); exportMessage = "已导出到 \(url.lastPathComponent)" }
         catch { exportMessage = "导出失败：\(error.localizedDescription)" }
@@ -387,5 +435,6 @@ func clockText(_ seconds: Double) -> String {
 
 func durationText(_ seconds: Double) -> String {
     let minutes = max(0, Int(seconds) / 60)
+    if seconds > 0 && minutes == 0 { return "不足1分钟" }
     return minutes >= 60 ? "\(minutes / 60)小时\(minutes % 60)分" : "\(minutes)分钟"
 }

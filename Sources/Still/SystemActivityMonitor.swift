@@ -42,12 +42,21 @@ final class SystemActivityMonitor {
         }
     }
 
-    func sample() -> ActivitySample {
+    func sample(includeForegroundApplication: Bool = false) -> ActivitySample {
         let elapsed = origin.duration(to: clock.now).components
         let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
         // kCGAnyInputEventType is the documented sentinel, not CGEventType.null (0).
         let anyIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
+        let foreground = includeForegroundApplication ? Self.foregroundApplication() : nil
         return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: anyIdle.isFinite ? max(0, anyIdle) : 0,
-                              available: suspendedReasons.isEmpty)
+                              available: suspendedReasons.isEmpty, foregroundApplication: foreground)
+    }
+
+    private static func foregroundApplication() -> ForegroundApplication? {
+        guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+        return ForegroundApplication(
+            bundleID: application.bundleIdentifier ?? "",
+            name: application.localizedName ?? application.bundleIdentifier ?? "未知应用"
+        )
     }
 }

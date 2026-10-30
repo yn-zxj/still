@@ -184,6 +184,15 @@ struct RulesView: View {
 
 struct PreferencesView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var agentActivity: AgentActivityCoordinator
+    @StateObject private var state = PreferencesViewState()
+
+    @MainActor
+    init(model: AppModel) {
+        self.model = model
+        _agentActivity = ObservedObject(wrappedValue: model.agentActivity)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 25) {
             SectionHeading(title: "偏好设置")
@@ -211,6 +220,103 @@ struct PreferencesView: View {
                 Divider().overlay(Palette.line)
                 toggleRow("呼吸动效", "呼吸花与轻微过渡；同时尊重系统的减少动态效果设置。", isOn: $model.settings.motionEnabled, icon: "sparkles")
             }.card(padding: 25)
+            VStack(alignment: .leading, spacing: 18) {
+                toggleRow(
+                    "时间去向",
+                    "只在本机保存前台应用名称、分类与停留时段；不读取窗口标题、网页地址、截图或输入内容。",
+                    isOn: $model.settings.applicationInsightsEnabled,
+                    icon: "chart-pie"
+                )
+                Divider().overlay(Palette.line)
+                HStack(spacing: 15) {
+                    LineIcon(systemName: "eye").frame(width: 25).foregroundStyle(Palette.accent)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("应用明细").font(.system(size: 14, weight: .medium))
+                        Text("已有 \(model.engine.applicationSegments.count) 段应用记录。关闭开关只停止继续记录，已有明细会保留。")
+                            .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3)
+                    }
+                    Spacer()
+                    Button("清除明细") { state.confirmClearApplicationHistory = true }
+                        .buttonStyle(SettingsButtonStyle())
+                        .disabled(model.engine.applicationSegments.isEmpty)
+                }
+            }.card(padding: 25)
+            .alert("清除应用明细？", isPresented: $state.confirmClearApplicationHistory) {
+                Button("取消", role: .cancel) {}
+                Button("清除", role: .destructive) { model.clearApplicationHistory() }
+            } message: {
+                Text("会删除所有前台应用名称、分类和停留时段；总使用时长与休息记录不受影响。")
+            }
+            VStack(alignment: .leading, spacing: 18) {
+                toggleRow(
+                    "Agent 工作时间",
+                    "把 Codex、Claude Code 等 Agent 的工作时段并入时间去向，包含其他机器上的会话。",
+                    isOn: $model.settings.agentActivityEnabled,
+                    icon: "terminal"
+                )
+                if model.settings.agentActivityEnabled {
+                    Divider().overlay(Palette.line)
+                    HStack(spacing: 15) {
+                        LineIcon(systemName: "radio")
+                            .frame(width: 25)
+                            .foregroundStyle(agentActivity.status.isError ? Color.orange : Palette.accent)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("HAPI Hub").font(.system(size: 14, weight: .medium))
+                            Text(agentActivity.status.title)
+                                .font(.system(size: 12))
+                                .foregroundStyle(agentActivity.status.isError ? Color.orange : Palette.secondary)
+                            if let hubURL = agentActivity.hubURL, !hubURL.isEmpty {
+                                Text(hubURL)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(Palette.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        Toggle("同步 HAPI", isOn: $model.settings.hapiSyncEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+                    HStack(spacing: 10) {
+                        Button("立即同步") { agentActivity.syncNow() }
+                            .buttonStyle(SettingsButtonStyle())
+                            .disabled(!model.settings.hapiSyncEnabled || agentActivity.status == .checking || agentActivity.status == .syncing)
+                        Button("选择 hapi…") { model.chooseHAPIPath() }
+                            .buttonStyle(SettingsButtonStyle())
+                        if !model.settings.hapiExecutablePath.isEmpty {
+                            Button("自动查找") { model.settings.hapiExecutablePath = "" }
+                                .buttonStyle(SettingsButtonStyle())
+                        }
+                        Spacer()
+                        Text("\(agentActivity.sessions.count) 个已存会话")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    Text("只保存会话标题、项目路径、机器名称和工作时段，不保存 prompt、回复或代码内容。同步直接连接你自己的 HAPI Hub；同一会话重复同步会合并。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondary)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        if !model.settings.hapiExecutablePath.isEmpty {
+                            Text("手动指定：\(URL(fileURLWithPath: model.settings.hapiExecutablePath).lastPathComponent)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(Palette.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button("清除 Agent 历史") { state.confirmClearAgentHistory = true }
+                            .buttonStyle(SettingsButtonStyle())
+                            .disabled(agentActivity.sessions.isEmpty)
+                    }
+                }
+            }.card(padding: 25)
+            .alert("清除 Agent 历史？", isPresented: $state.confirmClearAgentHistory) {
+                Button("取消", role: .cancel) {}
+                Button("清除", role: .destructive) { agentActivity.clearSessions() }
+            } message: {
+                Text("只删除息间保存的 Agent 会话标题、项目路径和时段；HAPI Hub 中的原始会话不会受影响。")
+            }
             VStack(spacing: 22) {
                 HStack(spacing: 15) {
                     LineIcon(systemName: "power").frame(width: 25).foregroundStyle(Palette.accent)
@@ -237,6 +343,23 @@ struct PreferencesView: View {
                             .buttonStyle(SettingsButtonStyle())
                     }
 
+                }
+                Divider().overlay(Palette.line)
+                HStack(spacing: 15) {
+                    LineIcon(systemName: "app-window")
+                        .frame(width: 25)
+                        .foregroundStyle(Palette.accent)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("在 Dock 中显示息间").font(.system(size: 14, weight: .medium))
+                        Text("关闭后只隐藏 Dock 图标，菜单栏入口、计时和提醒仍会正常工作。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                            .lineSpacing(3)
+                    }
+                    Spacer()
+                    Toggle("在 Dock 中显示息间", isOn: $model.settings.dockIconVisible)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
             }.card(padding: 25)
             HStack(spacing: 15) {
@@ -276,4 +399,10 @@ struct PreferencesView: View {
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
         }
     }
+}
+
+@MainActor
+private final class PreferencesViewState: ObservableObject {
+    @Published var confirmClearApplicationHistory = false
+    @Published var confirmClearAgentHistory = false
 }
