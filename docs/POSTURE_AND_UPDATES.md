@@ -48,14 +48,13 @@
 ## GitHub Release 更新
 
 - 固定源：`yn-zxj/still`，GitHub REST `GET /repos/yn-zxj/still/releases/latest`，只接受正式稳定版。
-- 设置页和应用菜单提供检查更新，自动检查最多每天一次成功检查（启动以及每小时检查时间门限）；私有/网络错误不会伪装成“最新版本”。
-- 私有仓库需要用户自行配置只读令牌，建议 fine-grained token 仅允许该仓库 Contents: Read。写入系统 Keychain，不写设置文件、日志或源码，不读取开发机 gh 凭据放进应用。[GitHub 文档](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
-- 转为公开仓库后移除令牌即可匿名使用，不需要改客户端或部署更新服务。
+- 设置页和应用菜单提供检查更新，自动检查最多每天一次成功检查（启动以及每小时检查时间门限）；网络或服务错误不会伪装成“最新版本”。
+- 当前仓库为公开仓库，客户端匿名访问 GitHub REST 和 Release 附件，不要求账号、只读令牌或 Keychain 凭据。[GitHub 文档](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 - 仅接受同仓库 HTTPS Release 地址与数字稳定版本，版本按数值比较，按本机架构选择 ZIP；没有匹配安装包/校验文件时保持错误状态。
-- 私有附件通过固定的 GitHub asset API 获取；到 CDN 重定向时移除 Authorization/Cookie，只允许 HTTPS GitHub 与 githubusercontent 主机。
+- Release 附件通过固定的 GitHub asset API 获取；到 CDN 重定向时仍移除任意 Authorization/Cookie，只允许 HTTPS GitHub 与 githubusercontent 主机。
 - ZIP 下载到临时文件后核对字节数及 SHA-256，正确才提交到 `~/Library/Caches/Still/Updates`；失败不替换旧包。不自动解压执行下载内容。
 - 安装：点击在访达中显示安装包，解压，正常退出息间，以新应用替换原位置，再次打开。当前没有后台自替换/自动重启；保留 `local.still.app` 和已有用户数据。
-- SHA-256 检查保障附件与同一 Release 的校验文件一致，不替代 Developer ID、公证或独立签名信任。发布仍遵循现有私有仓库策略。
+- SHA-256 检查保障附件与同一 Release 的校验文件一致，不替代 Developer ID、公证或独立签名信任。公开仓库保持源码可审查，第三方课程媒体、个人数据与凭据不进入 Git 历史或 Release。
 
 ## 方法与论文展示
 

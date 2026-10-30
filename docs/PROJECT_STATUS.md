@@ -2,9 +2,9 @@
 
 最后更新：2026-10-30。此文件是项目持续维护入口，每次重要改动同步更新。
 
-GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
+GitHub 公开仓库：https://github.com/yn-zxj/still 。主分支 `main`，已于 2026-10-30 按用户明确指令从私有仓库转为公开。
 
-首个源码存档提交 `fd2b280` 已推送；已用 GitHub API 确认 PRIVATE，远端 main SHA 与本地一致。后续文档提交继续维护在 main。
+首个源码存档提交为私有仓库时期的 `fd2b280`。当前已用 GitHub API 确认 `visibility=PUBLIC`、`isPrivate=false`；公开历史和 Release 仍不得包含第三方课程媒体、本机数据库、健康记录或凭据。
 
 ## 产品与明确偏好
 
@@ -14,7 +14,7 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 - 增加休息期间的工位活动：肩颈放松、头前倾相关练习、手腕/手指放松、眼部休息等。
 - 课程素材希望风格统一；接受中文真人视频；当前明确用于个人使用。
 - 用户手表型号：**OPPO Watch X**。用户确认官方 OPPO 健康课程支持连接该表；尚无 Still 接入验证。
-- 用户已要求 GitHub 私有备份，公开与商用分发未获授权。
+- 用户已明确授权将 GitHub 源码仓库转为公开，用于源码审查和匿名 Release 更新；公开仓库不附带第三方课程媒体或用户数据。
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
@@ -33,9 +33,9 @@ GitHub 私有仓库：https://github.com/yn-zxj/still 。主分支 `main`。
 | UI | 雾紫/薄荷双主题、浅色/深色/跟随系统、呼吸花、Lucide 矢量图标、增大辅助字号、页面过渡、减少动态效果、固定 0–24 时且未来留白的时间轴、可隐藏 Dock 图标 |
 | 持久化 | `~/Library/Application Support/Still/usage.sqlite`；UserDefaults `local.still.app` |
 | 生命周期 | 菜单栏常驻、关闭窗口继续统计、单实例保护、可选登录启动 |
-| 更新 | GitHub Release 检查、每日自动检查、Keychain 私有只读令牌、架构匹配下载及 SHA-256 校验，手动替换安装 |
+| 更新 | 公开 GitHub Release 匿名检查、每日自动检查、架构匹配下载及 SHA-256 校验，手动替换安装；无需账号或令牌 |
 | 坐姿 | 默认关闭；4 秒校准、本机 Lightweight OpenPose + Apple Vision、肩颈骨架/面部标记、后台监测、顶部纯文字提醒；规则内 14 项阈值可原位填空编辑 |
-| 课程 | 默认关闭的可选播放器；本地视频/HTTPS直链/网页来源，自行添加、编辑、JSON合并导入和导出；第三方课程仅存在用户本机 |
+| 课程 | 默认关闭的可选播放器；本地视频或自动识别的视频/网页链接，自行添加、删除、编辑、JSON 合并导入和导出；第三方课程仅存在用户本机 |
 | 手表 | 用户要求暂缓；已撤下导航、课程连接栏、连接器实例与蓝牙权限，实验源码保留在 `experiments/watch/` 与 `watch-companion/` |
 
 ## 源码与构建边界
@@ -55,7 +55,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。发布产物为 arm64 + x86_64 通用二进制，使用本地临时签名，尚无 Developer ID 签名或公证。此前 `v0.4.2` 虽然声明 macOS 13+，但实际只有 arm64；Intel 用户应改用 0.4.3 通用版。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 132 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 133 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新公开仓库的 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -91,7 +91,7 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 2. 上班族肩颈/腰背按摩的源接口无动作拆分，保留视频；其原文需要按摩者与被按摩者，不默认推荐为独自工位练习。
 3. “3 分钟天鹅颈训练”的源duration为120秒、简介为减脂通用文案：保存源事实与不一致备注，不擅自改写成治疗建议。
 4. 手表接入暂缓；保留实验代码，当前应用无连接入口或蓝牙权限。
-5. 继续区分核心测试、原生UI、流式播放、全片解码、通知/多屏/能耗真机验证，定期维护私有源码备份。
+5. 继续区分核心测试、原生 UI、流式播放、全片解码、通知/多屏/能耗真机验证，并维护公开源码与 Release 发布记录。
 
 ## 变更日志
 
@@ -369,3 +369,11 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 额外原生媒体检查：使用最新解析 URL 与来源请求头创建 AVURLAsset，isPlayable=true，时长423.935秒，视频/音频轨各1。它验证原生资产可加载，仍不能代替正常窗口内开始/暂停/播放进度的界面验收。
 
 - 实现提交 `94a6f5a410c9692d4dc335ca475436daf290c08e` 已推送私有 main；run `41030715755` 的测试、universal构建、签名/模型/最低系统验证和打包成功，macOS14 ARM与Intel原生启动 job 当前仍排队。尚未创建v0.6.0标签或Release，等待解锁后正常应用最终验收。
+
+#### 0.6.0 最终界面与交互验收
+
+- 公开仓库转换后，设置页已无仓库令牌输入、Keychain 凭据或私有仓库说明；普通应用点击“检查更新”匿名访问公开 Release，并以当前 0.6.0 正确显示已是较新版本。
+- 添加页只有“本地视频 / 链接导入”两种来源。使用用户提供的 B 站公开视频页实测自动取得标题、封面、简介和 7:04 时长；保存后，无动作课程直接展示完整宽视频区。
+- 普通应用实际播放 B 站视频至 00:05，画面正常推进。点击进度条中心跳到 03:32；暂停后 `→` 从 31.236 秒变为 36.236 秒，`←` 回到 31.236 秒；空格切换播放/暂停；滚轮滚动页面后进度保持 31.236 秒不变。
+- 编辑页底部删除按钮和“删除课程”二次确认可见，文案明确说明目录条目与已导入视频文件的保留关系；破坏性删除动作尚待用户确认后执行。
+- 最新源码仍为本地 133 项自动化通过（87 核心 + 46 资源/网络/模型）；重建后的普通 `dist/息间.app` 为 arm64 + x86_64、两切片最低 macOS 13.0、严格签名与模型校验通过。

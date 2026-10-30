@@ -389,15 +389,9 @@ private struct PostureMethodView: View {
     }
 }
 
-@MainActor
-private final class UpdateFormState: ObservableObject {
-    @Published var showCredentials = false
-    @Published var token = ""
-}
 struct UpdateSettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updater: AppUpdater
-    @StateObject private var form = UpdateFormState()
     var body: some View {
         VStack(alignment: .leading, spacing: 19) {
             HStack(spacing: 15) {
@@ -434,22 +428,8 @@ struct UpdateSettingsView: View {
             }
             if let checked = updater.lastChecked { Text("上次检查：\(checked.formatted(.dateTime.month().day().hour().minute()))").font(.system(size: 12)).foregroundStyle(Palette.secondary) }
             HStack {
-                Button(form.showCredentials ? "收起私有仓库设置" : "私有仓库访问设置") { form.showCredentials.toggle() }
-                    .buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(Palette.accent)
                 Spacer()
                 Button("在浏览器查看版本") { updater.openReleasePage() }.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(Palette.secondary)
-            }
-            if form.showCredentials {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("私有仓库需使用仅允许 yn-zxj/still、Contents 只读的 GitHub 令牌；仓库公开时留空即可。令牌只保存在系统钥匙串。")
-                        .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 10) {
-                        SecureField("GitHub 只读令牌", text: $form.token).textFieldStyle(.roundedBorder)
-                        Button("保存") { updater.saveToken(form.token); form.token = "" }.buttonStyle(SettingsButtonStyle()).disabled(form.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        Button("移除") { updater.saveToken(""); form.token = "" }.buttonStyle(SettingsButtonStyle())
-                    }
-                    if let message = updater.credentialMessage { Text(message).font(.system(size: 12)).foregroundStyle(Palette.secondary) }
-                }
             }
         }.card(padding: 25).id("app-updates")
     }

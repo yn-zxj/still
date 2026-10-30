@@ -17,7 +17,7 @@
   },
   {
     "id": "my-web-course",
-    "title": "我的网页课程",
+    "title": "我的链接课程",
     "media": { "webpage": "https://example.com/course" }
   }
 ]

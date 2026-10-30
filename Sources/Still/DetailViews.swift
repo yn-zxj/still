@@ -222,7 +222,7 @@ struct PreferencesView: View {
                 toggleRow("休息课程", "开启后显示课程库，并在休息提醒中推荐你添加的课程。", isOn: $model.settings.coursesEnabled, icon: "book-open")
                 if model.settings.coursesEnabled {
                     HStack {
-                        Text("支持本地视频、视频直链和网页课程；课程由你自行添加。")
+                        Text("支持本地视频与自动识别的视频/网页链接；课程由你自行添加。")
                             .font(.system(size: 12)).foregroundStyle(Palette.secondary)
                         Spacer()
                         Button("管理课程") { model.page = .courses }.buttonStyle(SettingsButtonStyle())

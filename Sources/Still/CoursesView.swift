@@ -30,7 +30,11 @@ struct CoursesView: View {
         .padding(.horizontal, 32)
         .frame(maxWidth: 1040, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .sheet(isPresented: $management.editorVisible) { CourseEditor(library: library, course: editingCourse) }
+        .sheet(isPresented: $management.editorVisible) {
+            CourseEditor(library: library, course: editingCourse) { removed in
+                if player.courseID == removed.id { player.stop(); player.unload() }
+            }
+        }
         .alert("从课程库移除？", isPresented: Binding(get: { removingCourse != nil }, set: { if !$0 { removingCourse = nil } })) {
             Button("取消", role: .cancel) { removingCourse = nil }
             Button("移除", role: .destructive) {
@@ -206,7 +210,7 @@ struct CoursesView: View {
                             CourseVideoPoster(resource: course.coverURL, remoteImages: library.remoteThumbnails)
                                 .frame(width: geometry.size.width, height: geometry.size.height).clipped()
                         } else {
-                            CourseVideoSurface(player: player.player, aspectRatio: player.videoAspectRatio)
+                            CourseVideoSurface(controller: player, aspectRatio: player.videoAspectRatio)
                                 .frame(width: geometry.size.width, height: geometry.size.height)
                         }
                         if player.loading || player.buffering {
@@ -226,7 +230,7 @@ struct CoursesView: View {
             }.aspectRatio(player.videoAspectRatio, contentMode: .fit).clipped()
             if library.mediaURL(for: course) != nil {
                 VStack(spacing: 15) {
-                    ProgressView(value: player.duration > 0 ? player.position / player.duration : 0).tint(Palette.accent)
+                    CourseSeekBar(controller: player).frame(height: 22)
                     HStack(spacing: 12) {
                         Button { player.toggle() } label: {
                             LineLabel(player.playing ? "暂停" : player.finished ? "再练一次" : player.active ? "继续跟练" : "开始跟练", systemImage: player.playing ? "pause" : "play")
@@ -410,9 +414,11 @@ struct CourseActionThumbnail: View {
     }
 }
 
-/// Display only: AVPlayerLayer has no AVKit wheel/trackpad scrubbing gestures.
+/// AVPlayerLayer keeps wheel scrolling separate from explicit seek controls.
 final class CoursePlayerLayerView: NSView {
     let videoLayer = AVPlayerLayer()
+    var seek: ((Double) -> Void)?
+    var toggle: (() -> Void)?
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -427,17 +433,30 @@ final class CoursePlayerLayerView: NSView {
         CATransaction.commit()
     }
     override func scrollWheel(with event: NSEvent) { nextResponder?.scrollWheel(with: event) }
-    override var acceptsFirstResponder: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self) }
+    override func keyDown(with event: NSEvent) {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { super.keyDown(with: event); return }
+        switch event.keyCode {
+        case 123: seek?(-5)
+        case 124: seek?(5)
+        case 49: toggle?()
+        default: super.keyDown(with: event)
+        }
+    }
 }
 
 struct CourseVideoSurface: NSViewRepresentable {
-    let player: AVPlayer
+    @ObservedObject var controller: CoursePlayer
     var aspectRatio: CGFloat = 16 / 9
     func makeNSView(context: Context) -> CoursePlayerLayerView {
-        let view = CoursePlayerLayerView(frame: .zero); view.videoLayer.player = player; return view
+        let view = CoursePlayerLayerView(frame: .zero)
+        view.videoLayer.player = controller.player
+        view.seek = { controller.seek(by: $0) }; view.toggle = { controller.toggle() }
+        return view
     }
     func updateNSView(_ view: CoursePlayerLayerView, context: Context) {
-        if view.videoLayer.player !== player { view.videoLayer.player = player }
+        if view.videoLayer.player !== controller.player { view.videoLayer.player = controller.player }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: CoursePlayerLayerView, context: Context) -> CGSize? {
         let width = proposal.width ?? 640

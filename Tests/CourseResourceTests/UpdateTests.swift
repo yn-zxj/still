@@ -26,16 +26,13 @@ private final class UpdateProtocol: URLProtocol {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [UpdateProtocol.self]
         return ReleaseClient(session: URLSession(configuration: config))
     }
-    @Test func publicChecksAreAnonymousAndPrivateChecksUseOnlyExplicitToken() async throws {
+    @Test func publicReleaseChecksAreAnonymous() async throws {
         let client = client()
-        let release = try await client.latest(token: nil)
+        let release = try await client.latest()
         #expect(release.valid)
         #expect(release.archive(architecture: "arm64")?.id == 1)
         #expect(release.archive(architecture: "x86_64")?.id == 2)
         #expect(UpdateProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization") == nil)
-        _ = try await client.latest(token: "test-fixture-token")
-        #expect(UpdateProtocol.lastRequest?.url?.host == "api.github.com")
-        #expect(UpdateProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer test-fixture-token")
     }
     @Test func universalArchiveIsUsableFromEitherArchitecture() throws {
         let json = #"{"tag_name":"v0.4.3","html_url":"https://github.com/yn-zxj/still/releases/tag/v0.4.3","draft":false,"prerelease":false,"assets":[{"id":7,"name":"Still-0.4.3-10-x86_64-arm64-macos.zip","size":4096,"state":"uploaded"}]}"#
@@ -43,10 +40,10 @@ private final class UpdateProtocol: URLProtocol {
         #expect(release.archive(architecture: "arm64")?.id == 7)
         #expect(release.archive(architecture: "x86_64")?.id == 7)
     }
-    @Test func private404AndExpiredTokensAreNotReportedAsUpToDate() async {
+    @Test func publicServerErrorsAreNotReportedAsUpToDate() async {
         for code in [401, 404, 500] {
             let client = client(status: code)
-            await #expect(throws: (any Error).self) { try await client.latest(token: nil) }
+            await #expect(throws: (any Error).self) { try await client.latest() }
         }
     }
     @Test func untrustedReleaseAndIncompleteArtifactsAreRejected() async throws {
@@ -54,11 +51,11 @@ private final class UpdateProtocol: URLProtocol {
         var json = String(data: UpdateProtocol.payload, encoding: .utf8)!
         json = json.replacingOccurrences(of: "https://github.com/yn-zxj/still", with: "https://example.com/evil/repo")
         UpdateProtocol.payload = Data(json.utf8)
-        await #expect(throws: (any Error).self) { try await client.latest(token: nil) }
+        await #expect(throws: (any Error).self) { try await client.latest() }
         _ = self.client()
         let asset = GitHubRelease.Asset(id: 1, name: "x", size: 90, state: "uploaded")
         UpdateProtocol.payload = Data("not-a-checksum".utf8)
-        await #expect(throws: (any Error).self) { try await client.checksum(asset, token: nil) }
+        await #expect(throws: (any Error).self) { try await client.checksum(asset) }
     }
     @Test func verifiedDownloadsCommitOnlyMatchingLengthAndDigest() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -74,21 +71,21 @@ private final class UpdateProtocol: URLProtocol {
             return (temp, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!)
         })
         let destination = root.appendingPathComponent("installed")
-        let file = try await client.download(asset, checksum: digest, token: nil, root: destination)
+        let file = try await client.download(asset, checksum: digest, root: destination)
         #expect(try Data(contentsOf: file) == payload)
-        let replacement = try await client.download(asset, checksum: digest, token: nil, root: destination)
+        let replacement = try await client.download(asset, checksum: digest, root: destination)
         #expect(try Data(contentsOf: replacement) == payload)
         #expect(staging.map { !FileManager.default.fileExists(atPath: $0.path) } == true)
         await #expect(throws: (any Error).self) {
-            try await client.download(asset, checksum: String(repeating: "0", count: 64), token: nil, root: destination)
+            try await client.download(asset, checksum: String(repeating: "0", count: 64), root: destination)
         }
         #expect(try Data(contentsOf: file) == payload) // Bad downloads never replace the existing archive.
         let truncated = GitHubRelease.Asset(id: 2, name: asset.name, size: asset.size + 10, state: "uploaded")
-        await #expect(throws: (any Error).self) { try await client.download(truncated, checksum: digest, token: nil, root: destination) }
+        await #expect(throws: (any Error).self) { try await client.download(truncated, checksum: digest, root: destination) }
         let traversal = GitHubRelease.Asset(id: 3, name: "../outside.zip", size: asset.size, state: "uploaded")
-        await #expect(throws: (any Error).self) { try await client.download(traversal, checksum: digest, token: nil, root: destination) }
+        await #expect(throws: (any Error).self) { try await client.download(traversal, checksum: digest, root: destination) }
     }
-    @Test func credentialsNeverFollowRedirectsToAssetHosts() throws {
+    @Test func redirectsStayOnGitHubAndStripUnexpectedCredentials() throws {
         var request = URLRequest(url: URL(string: "https://release-assets.githubusercontent.com/archive")!)
         request.setValue("Bearer fixture", forHTTPHeaderField: "Authorization")
         request.setValue("private-cookie", forHTTPHeaderField: "Cookie")

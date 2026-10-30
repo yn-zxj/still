@@ -65,7 +65,7 @@ struct ReminderWorkoutView: View {
                             if player.loading {
                                 CourseVideoPoster(resource: course.coverURL, remoteImages: model.library.remoteThumbnails)
                                 ProgressView().padding(18).background(Palette.surface.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
-                            } else { CourseVideoSurface(player: player.player, aspectRatio: player.videoAspectRatio) }
+                            } else { CourseVideoSurface(controller: player, aspectRatio: player.videoAspectRatio) }
                         }.frame(width: geometry.size.width, height: geometry.size.height)
                     }.aspectRatio(player.videoAspectRatio, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 18))
                     }
@@ -94,7 +94,7 @@ struct ReminderWorkoutView: View {
             }
             if course.media?.webpage == nil {
             VStack(alignment: .leading, spacing: 12) {
-                    ProgressView(value: player.duration > 0 ? player.position / player.duration : 0).tint(Palette.accent)
+                    CourseSeekBar(controller: player).frame(height: 22)
                     HStack(spacing: 14) {
                         Button { player.toggle() } label: { LineLabel(player.playing ? "暂停" : player.finished ? "再练一次" : player.active ? "继续跟练" : "开始跟练", systemImage: player.playing ? "pause" : "play") }
                             .buttonStyle(SoftButtonStyle(prominent: true)).disabled(player.loading || player.error != nil)

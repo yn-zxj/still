@@ -142,6 +142,7 @@ extension CourseLibrary {
 struct CourseEditor: View {
     @ObservedObject var library: CourseLibrary
     let course: Course?
+    var didRemove: (Course) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @StateObject private var form = CourseEditorState()
     @StateObject private var parserInstaller = VideoParserInstaller()
@@ -170,8 +171,8 @@ struct CourseEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     field("课程名称", text: $form.title)
-                    SegmentedPillControl(selection: $form.sourceKind, values: [0, 1, 2]) { value in
-                        Text(["本地视频", "视频直链", "网页课程"][value])
+                    SegmentedPillControl(selection: $form.sourceKind, values: [0, 1]) { value in
+                        Text(["本地视频", "链接导入"][value])
                     }
                     if sourceKind == 0 {
                         HStack {
@@ -181,7 +182,7 @@ struct CourseEditor: View {
                             Button("选择视频…", action: chooseVideo).buttonStyle(SettingsButtonStyle())
                         }.padding(14).background(Palette.lavender, in: RoundedRectangle(cornerRadius: 12))
                     } else {
-                        field(sourceKind == 1 ? "HTTPS 视频地址（如 MP4）" : "HTTPS 网页地址（如 B 站视频页）", text: $form.address)
+                        field("视频或网页链接 · 自动识别", text: $form.address)
                         HStack(spacing: 12) {
                             Button("识别链接", action: resolveLink).buttonStyle(SettingsButtonStyle())
                                 .disabled(resolving || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -211,7 +212,7 @@ struct CourseEditor: View {
                             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Palette.lavender, in: RoundedRectangle(cornerRadius: 12))
                         }
-                        if sourceKind == 2 {
+                        if form.mediaIsWeb {
                             Text("使用网页播放器；登录、广告和播放限制由来源网站决定。网页播放不自动记录课程完成，也不缓存网页视频。")
                                 .font(.system(size: 12)).foregroundStyle(Palette.secondary).fixedSize(horizontal: false, vertical: true)
                         }
@@ -228,20 +229,39 @@ struct CourseEditor: View {
                     Text("例如：肩部放松 | 30 秒。没有动作时，只显示视频区域。")
                         .font(.system(size: 12)).foregroundStyle(Palette.secondary)
                 }.padding(.trailing, 8)
-            }
+            }.disabled(saving)
             if let error { Text(error).font(.system(size: 12)).foregroundStyle(.orange) }
             HStack {
+                if course != nil {
+                    Button(role: .destructive) { form.confirmingDelete = true } label: {
+                        Text("删除课程").foregroundStyle(.red)
+                    }
+                        .buttonStyle(SettingsButtonStyle())
+                        .disabled(saving || resolving || parserInstaller.busy || library.importing)
+                }
                 if saving { ProgressView().controlSize(.small); Text("正在保存视频和课程…").font(.system(size: 12)) }
                 Spacer()
                 Button("保存课程", action: save).buttonStyle(SettingsButtonStyle(prominent: true))
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || resolving || parserInstaller.busy)
+                    .disabled((title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (sourceKind == 0 || address.isEmpty)) || saving || resolving || parserInstaller.busy)
             }
         }
         .padding(26).frame(width: 590, height: 740)
         .background(Palette.background).foregroundStyle(Palette.ink)
+        .alert("删除这门课程？", isPresented: $form.confirmingDelete) {
+            Button("取消", role: .cancel) { }
+            Button("删除课程", role: .destructive) {
+                guard let course else { return }
+                do { try library.remove(course); didRemove(course); dismiss() }
+                catch { self.error = error.localizedDescription }
+            }
+        } message: {
+            Text("“\(course?.title ?? "")”将从课程库移除，已导入的视频文件仍会保留。")
+        }
         .onAppear(perform: populate)
         .onChange(of: address) { value in
-            if value != form.resolvedAddress { form.originalPage = nil }
+            if value.trimmingCharacters(in: .whitespacesAndNewlines) != form.resolvedAddress {
+                form.originalPage = nil; form.resolvedVideo = nil; form.resolution = nil; form.resolutionMessage = nil
+            }
         }
     }
 
@@ -257,24 +277,25 @@ struct CourseEditor: View {
     }
     private func resolveLink() {
         let snapshot = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        let input = form.originalPage?.absoluteString ?? snapshot
+        let input = snapshot
         resolving = true; form.resolutionMessage = nil
         Task {
             defer { resolving = false }
             do {
                 let result = try await VideoLinkResolver().resolve(input)
                 guard address.trimmingCharacters(in: .whitespacesAndNewlines) == snapshot else { return }
-                form.resolution = result
-                if let video = result.video {
-                    form.originalPage = video == result.original ? nil : result.original
-                    form.resolvedAddress = video.absoluteString
-                    sourceKind = 1; address = video.absoluteString
-                }
-                else { sourceKind = 2; address = result.original.absoluteString }
-                applyMetadata(result, replacing: false)
-                form.resolutionMessage = result.message
+                applyResolution(result, input: snapshot)
             } catch { form.resolutionMessage = "未能识别，仍可作为网页保存：" + error.localizedDescription }
         }
+    }
+    private func applyResolution(_ result: VideoLinkResolution, input: String) {
+        form.resolution = result
+        form.resolvedAddress = input
+        form.resolvedVideo = result.video
+        form.mediaIsWeb = result.video == nil
+        form.originalPage = result.video != nil && result.video != result.original ? result.original : nil
+        applyMetadata(result, replacing: false)
+        form.resolutionMessage = result.message
     }
     private func applyMetadata(_ result: VideoLinkResolution, replacing: Bool) {
         if (replacing || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty), let found = result.title { title = found }
@@ -295,10 +316,16 @@ struct CourseEditor: View {
         response = (c.bodyResponses ?? []).joined(separator: "\n")
         advice = (c.recommendations ?? []).joined(separator: "\n")
         actions = actionText(c); cover = c.coverURL?.url.absoluteString ?? ""
-        form.resolvedAddress = c.media?.url?.url.absoluteString
         form.originalPage = c.media?.originalPage?.url
-        if let page = c.media?.webpage { sourceKind = 2; address = page.url.absoluteString }
-        else if c.media?.filename == nil, let url = c.media?.url { sourceKind = 1; address = url.url.absoluteString }
+        form.resolvedVideo = c.media?.url?.url
+        form.mediaIsWeb = c.media?.webpage != nil
+        if c.media?.filename == nil, let page = c.media?.originalPage?.url ?? c.media?.webpage?.url ?? c.media?.url?.url {
+            sourceKind = 1
+            address = page.absoluteString
+            // Resolve parsed streams again on save so an expired temporary CDN URL
+            // is replaced from the stable source page instead of being persisted.
+            form.resolvedAddress = c.media?.originalPage == nil ? address : nil
+        }
     }
     private func actionText(_ c: Course) -> String {
         c.actions.map { $0.name + ($0.quantityText.map { " | " + $0 } ?? "") }.joined(separator: "\n")
@@ -307,38 +334,67 @@ struct CourseEditor: View {
         value.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
     private func save() {
-        do {
-            var object = course.flatMap { try? JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) as? [String: Any] } ?? [:]
-            object["schemaVersion"] = 1; object["id"] = course?.id ?? UUID().uuidString
-            object["title"] = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            object["displayDurationMinutes"] = minutes; object["description"] = description
-            object["preparation"] = lines(preparation); object["bodyResponses"] = lines(response); object["recommendations"] = lines(advice)
-            if cover.isEmpty { object.removeValue(forKey: "coverURL") } else { object["coverURL"] = try HTTPSResourceURL(cover).url.absoluteString }
-            if course == nil || actions != course.map(actionText) {
-                object["actions"] = lines(actions).enumerated().map { index, line -> [String: Any] in
-                    let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
-                    var action: [String: Any] = ["order": index + 1, "phase": "练习", "name": parts[0]]
-                    if parts.count == 2 { action["quantityText"] = parts[1] }
-                    return action
+        saving = true; error = nil
+        Task {
+            do {
+                if sourceKind == 1 {
+                    let input = address.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let url = try HTTPSResourceURL(input).url
+                    if form.resolvedAddress != input {
+                        let result = (try? await VideoLinkResolver().resolve(input))
+                            ?? VideoLinkResolution(original: url, video: nil, title: nil, message: "未能解析视频，保留网页播放。")
+                        applyResolution(result, input: input)
+                    }
                 }
-                object["actionsComplete"] = true
+                guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    error = "没有识别到课程名称，请填写后保存。"
+                    saving = false
+                    return
+                }
+                var object = course.flatMap { try? JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) as? [String: Any] } ?? [:]
+                object["schemaVersion"] = 1
+                object["id"] = course?.id ?? UUID().uuidString
+                object["title"] = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                object["displayDurationMinutes"] = minutes
+                object["description"] = description
+                object["preparation"] = lines(preparation)
+                object["bodyResponses"] = lines(response)
+                object["recommendations"] = lines(advice)
+                if cover.isEmpty {
+                    object.removeValue(forKey: "coverURL")
+                } else {
+                    object["coverURL"] = try HTTPSResourceURL(cover).url.absoluteString
+                }
+                if course == nil || actions != course.map(actionText) {
+                    object["actions"] = lines(actions).enumerated().map { index, line -> [String: Any] in
+                        let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                        var action: [String: Any] = ["order": index + 1, "phase": "练习", "name": parts[0]]
+                        if parts.count == 2 { action["quantityText"] = parts[1] }
+                        return action
+                    }
+                    object["actionsComplete"] = true
+                }
+                if sourceKind == 0 {
+                    if let video {
+                        object["media"] = ["filename": video.lastPathComponent]
+                    } else if course?.media?.filename == nil {
+                        throw CourseError.missingMedia
+                    }
+                } else {
+                    let url = try HTTPSResourceURL(address.trimmingCharacters(in: .whitespacesAndNewlines))
+                    var media = form.resolvedVideo.map { ["url": $0.absoluteString] } ?? ["webpage": url.url.absoluteString]
+                    if let page = form.originalPage { media["originalPage"] = page.absoluteString }
+                    object["media"] = media
+                }
+                let updated = try Course.decodeCatalog(JSONSerialization.data(withJSONObject: object))[0]
+                try await library.save(updated, video: video)
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+                saving = false
             }
-            if sourceKind == 0 {
-                if let video { object["media"] = ["filename": video.lastPathComponent] }
-                else if course?.media?.filename == nil { throw CourseError.missingMedia }
-            } else {
-                let url = try HTTPSResourceURL(address.trimmingCharacters(in: .whitespacesAndNewlines))
-                var media = [sourceKind == 1 ? "url" : "webpage": url.url.absoluteString]
-                if sourceKind == 1, let page = form.originalPage { media["originalPage"] = page.absoluteString }
-                object["media"] = media
-            }
-            let updated = try Course.decodeCatalog(JSONSerialization.data(withJSONObject: object))[0]
-            saving = true; error = nil
-            Task {
-                do { try await library.save(updated, video: video); dismiss() }
-                catch { self.error = error.localizedDescription; saving = false }
-            }
-        } catch { self.error = error.localizedDescription }
+        }
     }
 }
 
@@ -405,9 +461,12 @@ private final class CourseEditorState: ObservableObject {
     @Published var cover: String = ""
     @Published var error: String? = nil
     @Published var resolving = false
+    @Published var resolvedVideo: URL?
+    @Published var mediaIsWeb = false
     @Published var resolvedAddress: String?
     @Published var originalPage: URL?
     @Published var resolutionMessage: String?
     @Published var resolution: VideoLinkResolution?
     @Published var saving: Bool = false
+    @Published var confirmingDelete = false
 }

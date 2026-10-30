@@ -60,7 +60,7 @@ final class CourseVideoCache: ObservableObject {
         defer { observers[key]?[observer] = nil }
         if let existing = pending[key] { return try await existing.value }
         let currentGeneration = generation, root = root, session = session, downloader = downloader
-        let task = Task<URL, Error> {
+        let task = Task<URL, Error> { [self] in
             let fm = FileManager.default
             try fm.createDirectory(at: root, withIntermediateDirectories: true)
             let stage = root.appendingPathComponent(".partial-" + UUID().uuidString + ".mp4")

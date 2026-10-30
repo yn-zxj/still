@@ -161,6 +161,10 @@ final class CoursePlayer: ObservableObject {
     private var bufferStarted: TimeInterval?
     private var remote = false
     private var progress = CourseProgress(duration: 1)
+    private var seekID = UUID()
+    private var seeking = false
+    private var hasSeeked = false
+    private var playbackEnded = false
     var sessionID: UUID?
     var onStart: ((Double) -> Void)?
     var onProgress: ((Double, Bool) -> Void)?
@@ -178,6 +182,7 @@ final class CoursePlayer: ObservableObject {
     func load(_ course: Course, url: URL?, autoStart: Bool = false) {
         stop(); removeItemObservers(); loadTask?.cancel(); cacheTask?.cancel(); asset?.cancelLoading(); asset = nil
         loadID = UUID(); let request = loadID
+        seekID = UUID(); seeking = false; hasSeeked = false; playbackEnded = false
         courseID = course.id; title = course.title; position = 0; duration = 0; videoAspectRatio = 16 / 9; error = nil; finished = false
         caching = false; downloadProgress = nil; usingCachedVideo = false; videoAvailableOffline = false; cacheError = nil
         player.replaceCurrentItem(with: nil)
@@ -269,6 +274,7 @@ final class CoursePlayer: ObservableObject {
         startCaching(course, url: url, request: loadID)
     }
     func unload() {
+        seekID = UUID(); seeking = false
         stop(); loadID = UUID(); loadTask?.cancel(); cacheTask?.cancel(); asset?.cancelLoading(); asset = nil
         removeItemObservers(); player.replaceCurrentItem(with: nil)
         courseID = nil; loading = false; caching = false; buffering = false; usingCachedVideo = false
@@ -278,8 +284,11 @@ final class CoursePlayer: ObservableObject {
         guard !loading, error == nil, duration > 0 else { return }
         if playing { pause(); return }
         if !active {
-            progress = CourseProgress(duration: duration); position = 0; finished = false
-            player.seek(to: .zero); sessionID = UUID(); active = true; onStart?(duration)
+            progress = CourseProgress(duration: duration); finished = false
+            if playbackEnded || position >= duration {
+                position = 0; player.seek(to: .zero); playbackEnded = false; hasSeeked = false
+            } else { progress.observe(position: position, playing: false) }
+            sessionID = UUID(); active = true; onStart?(duration)
         }
         if !videoAvailableOffline, !caching, let course = loadedCourse, course.media?.originalPage == nil, let url = remoteURL { startCaching(course, url: url, request: loadID) }
         playing = true; player.play()
@@ -293,8 +302,23 @@ final class CoursePlayer: ObservableObject {
         if active { active = false; onStop?() }
         sessionID = nil
     }
+    func seek(by seconds: Double) { seek(to: position + seconds) }
+    func seek(to seconds: Double) {
+        guard !loading, error == nil, duration > 0, seconds.isFinite else { return }
+        let target = min(duration, max(0, seconds))
+        let request = UUID(); seekID = request; seeking = true; hasSeeked = true
+        position = target; finished = false; playbackEnded = false
+        progress.observe(position: target, playing: false)
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.seekID == request else { return }
+                self.seeking = false
+                self.progress.observe(position: self.position, playing: false)
+            }
+        }
+    }
     private func observe(_ time: Double) {
-        guard time.isFinite else { return }
+        guard time.isFinite, !seeking else { return }
         position = max(0, min(duration, time))
         guard active else { return }
         progress.observe(position: position, playing: playing)
@@ -303,8 +327,9 @@ final class CoursePlayer: ObservableObject {
     private func ended() {
         guard active else { return }
         observe(duration); playing = false; active = false; finished = progress.completed
+        playbackEnded = true
         onProgress?(progress.elapsed, finished)
-        if !finished { onStop?(); error = "播放出现中断，本次未计为完整跟练。" }
+        if !finished { onStop?(); if !hasSeeked { error = "播放出现中断，本次未计为完整跟练。" } }
         sessionID = nil
     }
     private func fail() {
