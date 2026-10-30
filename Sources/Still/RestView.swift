@@ -62,7 +62,7 @@ struct RestView: View {
             if presentation == .preview {
                 Text("预览不会开始休息").font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.top, 8)
             }
-            if presentation != .completed {
+            if presentation != .completed && model.settings.coursesEnabled {
                 ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
                     .padding(.horizontal, 24).padding(.top, 18)
             }
@@ -111,7 +111,7 @@ struct FullScreenRestView: View {
                     Text("疲劳值 \(model.engine.fatiguePercent)%")
                     if model.settings.showDailyTimeInReminder { Text("今日使用 \(durationText(model.today.seconds))") }
                 }.font(.system(size: 14)).foregroundStyle(Palette.secondary).padding(.top, 14)
-                if presentation != .completed {
+                if presentation != .completed && model.settings.coursesEnabled {
                     ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
                         .frame(width: 380).padding(.top, 22)
                 }

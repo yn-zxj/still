@@ -1,0 +1,23 @@
+[
+  {
+    "id": "my-local-course",
+    "title": "我的放松视频",
+    "displayDurationMinutes": 5,
+    "media": { "filename": "lesson.mp4" }
+  },
+  {
+    "id": "my-online-course",
+    "title": "我的在线课程",
+    "media": { "url": "https://example.com/lesson.mp4" },
+    "description": "可选简介",
+    "preparation": ["可选准备说明"],
+    "actions": [
+      { "order": 1, "phase": "练习", "name": "自定义动作", "quantityText": "30 秒" }
+    ]
+  },
+  {
+    "id": "my-web-course",
+    "title": "我的网页课程",
+    "media": { "webpage": "https://example.com/course" }
+  }
+]

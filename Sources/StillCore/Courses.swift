@@ -38,10 +38,31 @@ public struct Course: Codable, Identifiable, Equatable {
         public var id: Int { order }
     }
     public struct Media: Codable, Equatable {
+        public let originalPage: HTTPSResourceURL?
+        public let webpage: HTTPSResourceURL?
         public let filename: String?
         public let url: HTTPSResourceURL?
         public let sha256: String?
         public let fullAudioVideoDecode: String?
+        /// Use the source site's own embed player for standard Bilibili video links.
+        /// Keep the original page URL in the catalog for attribution and browser fallback.
+        public var webPlaybackURL: URL? {
+            guard let original = webpage?.url else { return nil }
+            guard let host = original.host?.lowercased(),
+                  ["www.bilibili.com", "bilibili.com", "m.bilibili.com"].contains(host) else { return original }
+            let parts = original.pathComponents
+            guard let videoIndex = parts.firstIndex(of: "video"), parts.indices.contains(videoIndex + 1) else { return original }
+            let bvid = parts[videoIndex + 1]
+            guard bvid.range(of: "^BV[A-Za-z0-9]{10}$", options: .regularExpression) != nil else { return original }
+            let page = URLComponents(url: original, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "p" })?.value.flatMap(Int.init) ?? 1
+            var player = URLComponents(string: "https://player.bilibili.com/player.html")!
+            player.queryItems = [URLQueryItem(name: "bvid", value: bvid),
+                                 URLQueryItem(name: "page", value: String(max(1, page))),
+                                 URLQueryItem(name: "autoplay", value: "0"),
+                                 URLQueryItem(name: "danmaku", value: "0")]
+            return player.url
+        }
         public func playbackURL(in directory: URL, fileExists: (URL) -> Bool) -> URL? {
             if let filename {
                 let local = directory.appendingPathComponent(filename)
@@ -70,13 +91,45 @@ public struct Course: Codable, Identifiable, Equatable {
     public let media: Media?
     public let coverURL: HTTPSResourceURL?
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, title, source, displayDurationMinutes, estimatedKcal, difficulty, description
+        case courseTypes, suitableFor, contraindications, preparation, bodyResponses, recommendations
+        case sourceText, actions, actionsComplete, media, coverURL
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        source = try c.decodeIfPresent(Source.self, forKey: .source) ?? Source(application: "自行添加", provider: nil, capturedAt: nil)
+        displayDurationMinutes = try c.decodeIfPresent(Int.self, forKey: .displayDurationMinutes) ?? 5
+        estimatedKcal = try c.decodeIfPresent(Int.self, forKey: .estimatedKcal)
+        difficulty = try c.decodeIfPresent(String.self, forKey: .difficulty) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        courseTypes = try c.decodeIfPresent([String].self, forKey: .courseTypes)
+        suitableFor = try c.decodeIfPresent([String].self, forKey: .suitableFor)
+        contraindications = try c.decodeIfPresent([String].self, forKey: .contraindications)
+        preparation = try c.decodeIfPresent([String].self, forKey: .preparation)
+        bodyResponses = try c.decodeIfPresent([String].self, forKey: .bodyResponses)
+        recommendations = try c.decodeIfPresent([String].self, forKey: .recommendations)
+        sourceText = try c.decodeIfPresent(String.self, forKey: .sourceText)
+        actions = try c.decodeIfPresent([Action].self, forKey: .actions) ?? []
+        actionsComplete = try c.decodeIfPresent(Bool.self, forKey: .actionsComplete) ?? false
+        media = try c.decodeIfPresent(Media.self, forKey: .media)
+        coverURL = try c.decodeIfPresent(HTTPSResourceURL.self, forKey: .coverURL)
+    }
+
     public static func decodeCatalog(_ data: Data) throws -> [Course] {
-        let courses = try JSONDecoder().decode([Course].self, from: data)
+        let decoder = JSONDecoder()
+        let payload = (try? decoder.decode(String.self, from: data)).map { Data($0.utf8) } ?? data
+        let courses: [Course]
+        if try JSONSerialization.jsonObject(with: payload) is [Any] { courses = try decoder.decode([Course].self, from: payload) }
+        else { courses = [try decoder.decode(Course.self, from: payload)] }
         guard courses.allSatisfy({ $0.schemaVersion == 1 && !$0.id.isEmpty && !$0.title.isEmpty && $0.displayDurationMinutes > 0 }),
               Set(courses.map(\.id)).count == courses.count else { throw CourseError.invalidCatalog }
         for course in courses {
-            guard Set(course.actions.map(\.order)).count == course.actions.count else { throw CourseError.invalidCatalog }
-            if let media = course.media, media.filename == nil && media.url == nil { throw CourseError.invalidCatalog }
+            guard Set(course.actions.map(\.order)).count == course.actions.count && course.actions.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { throw CourseError.invalidCatalog }
+            if let media = course.media, media.filename == nil && media.url == nil && media.webpage == nil { throw CourseError.invalidCatalog }
             for filename in [course.media?.filename].compactMap({ $0 }) + course.actions.compactMap(\.thumbnail) {
                 guard !filename.isEmpty, filename != ".", filename != "..", filename != "courses.json",
                       !filename.contains("/"), !filename.contains("\\"), !filename.contains("\0") else { throw CourseError.unsafeFilename }

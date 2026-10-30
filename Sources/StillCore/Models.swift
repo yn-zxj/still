@@ -36,6 +36,7 @@ public struct MonitorSettings: Codable, Equatable {
     public var notificationsEnabled = false
     public var motionEnabled = true
     public var appearanceTheme: AppearanceTheme = .light
+    public var coursesEnabled = false
     public var postureEnabled = false
     public var posturePlayful = true
     public var postureThresholds = PostureThresholds()
@@ -56,7 +57,7 @@ public struct MonitorSettings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes, mode
         case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
-        case postureEnabled, posturePlayful, postureThresholds, applicationInsightsEnabled
+        case coursesEnabled, postureEnabled, posturePlayful, postureThresholds, applicationInsightsEnabled
         case agentActivityEnabled, hapiSyncEnabled, hapiExecutablePath, dockIconVisible, automaticUpdateChecks
         case showMenuFatigue, reminderStyle, reminderMessage, showDailyTimeInReminder
     }
@@ -74,6 +75,7 @@ public struct MonitorSettings: Codable, Equatable {
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? notificationsEnabled
         motionEnabled = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? motionEnabled
         appearanceTheme = try c.decodeIfPresent(AppearanceTheme.self, forKey: .appearanceTheme) ?? appearanceTheme
+        coursesEnabled = try c.decodeIfPresent(Bool.self, forKey: .coursesEnabled) ?? coursesEnabled
         postureEnabled = try c.decodeIfPresent(Bool.self, forKey: .postureEnabled) ?? postureEnabled
         posturePlayful = try c.decodeIfPresent(Bool.self, forKey: .posturePlayful) ?? posturePlayful
         postureThresholds = try c.decodeIfPresent(PostureThresholds.self, forKey: .postureThresholds) ?? postureThresholds
@@ -176,7 +178,7 @@ public struct DailySummary: Identifiable {
     public var id: Date { date }
 }
 
-public struct UsageActivityPoint: Equatable {
+public struct UsageActivityPoint: Equatable, Sendable {
     public var fraction: Double
     public var activity: Double
 }

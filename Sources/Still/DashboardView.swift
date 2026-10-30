@@ -76,7 +76,7 @@ struct DashboardView: View {
                     Text("息间").font(.system(size: 22, weight: .semibold, design: .rounded)).tracking(2)
                 }
             }.padding(.leading, 18).padding(.top, 55).padding(.bottom, 40)
-            ForEach([Page.today, .insights, .courses, .history, .rules], id: \.self) { page in
+            ForEach([Page.today, .insights, .courses, .history, .rules].filter { $0 != .courses || model.settings.coursesEnabled }, id: \.self) { page in
                 navItem(page)
             }
             if model.settings.postureEnabled { navItem(.posture) }

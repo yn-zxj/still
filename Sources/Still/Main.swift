@@ -168,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Opening a visual break reminder begins the break immediately. startRest()
         // re-enters this method as .resting and owns the countdown from that point.
         if presentation == .due {
+            guard !model.inReminderTraining else { return }
             model.startRest()
             return
         }

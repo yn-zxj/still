@@ -8,7 +8,7 @@ import StillCore
 @MainActor
 final class CourseLibrary: ObservableObject {
     @Published private(set) var courses: [Course] = []
-    @Published private(set) var importing = false
+    @Published var importing = false
     @Published private(set) var revision = 0
     @Published var error: String?
     @Published var selectedID: String?
@@ -196,7 +196,17 @@ final class CoursePlayer: ObservableObject {
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let asset = assetFactory(loadURL)
+                var freshURL = loadURL
+                var playbackHeaders: [String: String] = [:]
+                if !loadURL.isFileURL, let original = course.media?.originalPage?.url {
+                    let resolution = try await VideoLinkResolver().resolve(original.absoluteString)
+                    guard let video = resolution.video else { throw CourseError.invalidMedia }
+                    freshURL = video
+                    playbackHeaders = resolution.headers
+                    guard request == loadID, !Task.isCancelled else { return }
+                    remoteURL = video
+                }
+                let asset = playbackHeaders.isEmpty ? assetFactory(freshURL) : AVURLAsset(url: freshURL, options: ["AVURLAssetHTTPHeaderFieldsKey": playbackHeaders])
                 self.asset = asset
                 let playable = try await asset.load(.isPlayable)
                 let seconds = try await asset.load(.duration).seconds
@@ -251,11 +261,11 @@ final class CoursePlayer: ObservableObject {
         }
     }
     func playFromCache(_ course: Course) {
-        guard !caching, let url = course.media?.url?.url else { return }
+        guard !caching, course.media?.originalPage == nil, let url = course.media?.url?.url else { return }
         startCaching(course, url: url, request: loadID, playAfterCache: true)
     }
     func retryCaching(_ course: Course) {
-        guard !caching, !videoAvailableOffline, let url = course.media?.url?.url else { return }
+        guard !caching, !videoAvailableOffline, course.media?.originalPage == nil, let url = course.media?.url?.url else { return }
         startCaching(course, url: url, request: loadID)
     }
     func unload() {
@@ -271,7 +281,7 @@ final class CoursePlayer: ObservableObject {
             progress = CourseProgress(duration: duration); position = 0; finished = false
             player.seek(to: .zero); sessionID = UUID(); active = true; onStart?(duration)
         }
-        if !videoAvailableOffline, !caching, let course = loadedCourse, let url = remoteURL { startCaching(course, url: url, request: loadID) }
+        if !videoAvailableOffline, !caching, let course = loadedCourse, course.media?.originalPage == nil, let url = remoteURL { startCaching(course, url: url, request: loadID) }
         playing = true; player.play()
     }
     func pause() {

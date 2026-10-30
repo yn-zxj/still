@@ -218,6 +218,17 @@ struct PreferencesView: View {
                 }
                     .frame(width: 280)
             }.card(padding: 25)
+            VStack(spacing: 18) {
+                toggleRow("休息课程", "开启后显示课程库，并在休息提醒中推荐你添加的课程。", isOn: $model.settings.coursesEnabled, icon: "book-open")
+                if model.settings.coursesEnabled {
+                    HStack {
+                        Text("支持本地视频、视频直链和网页课程；课程由你自行添加。")
+                            .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                        Spacer()
+                        Button("管理课程") { model.page = .courses }.buttonStyle(SettingsButtonStyle())
+                    }
+                }
+            }.card(padding: 25)
             VStack(spacing: 22) {
                 toggleRow("休息提醒", "暂停提醒后，仍然记录使用时间。", isOn: $model.settings.remindersEnabled, icon: "bell")
                 Divider().overlay(Palette.line)

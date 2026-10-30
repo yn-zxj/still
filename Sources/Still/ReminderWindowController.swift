@@ -71,7 +71,7 @@ final class ReminderWindowController {
                 panel.titleVisibility = .hidden; panel.titlebarAppearsTransparent = true
                 for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { panel.standardWindowButton(button)?.isHidden = true }
                 panel.isMovableByWindowBackground = true
-                panel.setContentSize(NSSize(width: 440, height: min(presentation == .completed ? 470 : presentation == .due ? 720 : 660, screen.visibleFrame.height - 40)))
+                panel.setContentSize(NSSize(width: 440, height: min(presentation == .completed ? 470 : model.settings.coursesEnabled ? 660 : 460, screen.visibleFrame.height - 40)))
                 panel.center()
             }
             panels.append(panel); panel.orderFrontRegardless()
@@ -81,12 +81,18 @@ final class ReminderWindowController {
         }
     }
     private func open(_ course: Course, in panel: RestPanel) {
+        guard model.settings.coursesEnabled else { return }
         for other in panels where other !== panel { other.orderOut(nil); other.contentView = nil; other.close() }
         panels = [panel]
         let preview = content.presentation == .preview
         let player = preview ? content.previewPlayer : model.coursePlayer
         if !preview { model.inReminderTraining = true }
-        if player.courseID != course.id || player.error != nil || player.finished { player.load(course, url: model.library.mediaURL(for: course)) }
+        if course.media?.webpage != nil {
+            player.stop()
+            if !preview { model.endRest() }
+        } else if player.courseID != course.id || player.error != nil || player.finished {
+            player.load(course, url: model.library.mediaURL(for: course))
+        }
         content.course = course
         if currentStyle == .mini, let screen = panel.screen ?? NSScreen.main {
             let size = NSSize(width: min(880, screen.visibleFrame.width - 60), height: min(760, screen.visibleFrame.height - 40))
@@ -98,8 +104,13 @@ final class ReminderWindowController {
         let preview = content.presentation == .preview
         let player = preview ? content.previewPlayer : model.coursePlayer
         let wasActive = player.active
+        let wasWeb = content.course?.media?.webpage != nil
         player.stop(); content.course = nil; model.inReminderTraining = false
-        if !preview && wasActive { content.presentation = .due; current = .due }
+        if !preview && (wasActive || wasWeb) {
+            // Return to an actual running countdown, never a stale 00:00 view.
+            model.startRest()
+            return
+        }
         model.prepareRecommendation(preview: preview, shuffle: true)
         if currentStyle == .mini, let screen = panel.screen ?? NSScreen.main {
             panel.setContentSize(NSSize(width: 440, height: min(content.presentation == .preview ? 660 : 720, screen.visibleFrame.height - 40))); panel.center()

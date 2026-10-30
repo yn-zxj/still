@@ -6,6 +6,10 @@ struct CoursesView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var library: CourseLibrary
     @ObservedObject var player: CoursePlayer
+    @StateObject private var management = CourseManagementState()
+    private var editingCourse: Course? { get { management.editingCourse } nonmutating set { management.editingCourse = newValue } }
+    private var editorVisible: Bool { get { management.editorVisible } nonmutating set { management.editorVisible = newValue } }
+    private var removingCourse: Course? { get { management.removingCourse } nonmutating set { management.removingCourse = newValue } }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var selected: Course? { library.courses.first { $0.id == library.selectedID } }
     private var transition: Animation? { reduceMotion || !model.settings.motionEnabled ? nil : .easeOut(duration: 0.2) }
@@ -26,6 +30,17 @@ struct CoursesView: View {
         .padding(.horizontal, 32)
         .frame(maxWidth: 1040, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $management.editorVisible) { CourseEditor(library: library, course: editingCourse) }
+        .alert("从课程库移除？", isPresented: Binding(get: { removingCourse != nil }, set: { if !$0 { removingCourse = nil } })) {
+            Button("取消", role: .cancel) { removingCourse = nil }
+            Button("移除", role: .destructive) {
+                if let course = removingCourse {
+                    if player.courseID == course.id { player.stop(); player.unload() }
+                    do { try library.remove(course) } catch { library.error = error.localizedDescription }
+                }
+                removingCourse = nil
+            }
+        } message: { Text("移除课程条目，本地导入的视频文件仍会保留。") }
         .onAppear { loadSelection() }
         .onChange(of: library.selectedID) { _ in loadSelection() }
         .onChange(of: library.revision) { _ in loadSelection(force: true) }
@@ -36,7 +51,17 @@ struct CoursesView: View {
             HStack(alignment: .top) {
                 SectionHeading(title: "休息课程", subtitle: "选一段练习，让身体松下来。")
                 Spacer()
-                CourseCacheControls(cache: library.videoCache, player: player)
+                VStack(alignment: .trailing, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Menu("导入 / 导出") {
+                            Button("导入 JSON 或课程文件夹…") { library.chooseCatalog() }
+                            Button("导出课程备份…") { library.exportCatalog() }.disabled(library.courses.isEmpty)
+                        }.menuStyle(.borderlessButton).fixedSize()
+                        Button("添加课程") { editingCourse = nil; editorVisible = true }
+                            .buttonStyle(SettingsButtonStyle(prominent: true))
+                    }.disabled(library.importing || player.active)
+                    CourseCacheControls(cache: library.videoCache, player: player)
+                }
             }
             if player.active, let current = library.courses.first(where: { $0.id == player.courseID }) {
                 Button { open(current) } label: {
@@ -52,7 +77,7 @@ struct CoursesView: View {
                 VStack(spacing: 18) {
                     FlowerView(isAnimating: false).frame(width: 140, height: 140)
                     Text("暂无课程").font(.system(size: 22, weight: .medium))
-                    Text("课程目录准备好后，会显示在这里。")
+                    Text("添加本地视频、视频链接，或导入自己的课程 JSON。")
                         .font(.system(size: 15)).foregroundStyle(Palette.secondary)
                 }.frame(maxWidth: .infinity).padding(.vertical, 55).card()
             } else {
@@ -61,6 +86,10 @@ struct CoursesView: View {
                     ForEach(library.courses) { course in
                         CourseCoverCard(course: course, remoteImages: library.remoteThumbnails, reduceMotion: reduceMotion || !model.settings.motionEnabled) { open(course) }
                             .disabled(player.active && player.courseID != course.id)
+                            .contextMenu {
+                                Button("编辑课程") { editingCourse = course; editorVisible = true }.disabled(player.active || library.importing)
+                                Button("移除课程", role: .destructive) { removingCourse = course }
+                            }
                     }
                 }
             }
@@ -81,23 +110,29 @@ struct CoursesView: View {
                     metadata(course).font(.system(size: 14)).foregroundStyle(Palette.secondary)
                 }
                 Spacer(minLength: 0)
+                Button("编辑课程") { editingCourse = course; editorVisible = true }
+                    .buttonStyle(SettingsButtonStyle()).disabled(player.active || library.importing)
             }
             HStack(alignment: .top, spacing: 24) {
                 if !course.actions.isEmpty { actionRail(course).frame(width: 222).padding(.bottom, 24) }
                 ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 26) {
-                    video(course)
+                    if let webpage = course.media?.webpage {
+                        WebCourseView(url: webpage.url, playbackURL: course.media?.webPlaybackURL).id(course.id)
+                    } else { video(course) }
                     VStack(alignment: .leading, spacing: 22) {
-                        Text("关于这节课").font(.system(size: 19, weight: .semibold))
-                        Text(course.description).font(.system(size: 15)).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
-                        info("练习准备", items: course.preparation, fallback: "原课程暂未提供准备说明")
-                        info("身体反应", items: course.bodyResponses, fallback: "原课程暂未提供身体反应说明")
+                        if !course.description.isEmpty {
+                            Text("关于这节课").font(.system(size: 19, weight: .semibold))
+                            Text(course.description).font(.system(size: 15)).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
+                        }
+                        info("练习准备", items: course.preparation)
+                        info("身体反应", items: course.bodyResponses)
                         info("课程建议", items: course.recommendations)
                         DisclosureGroup(isExpanded: $library.showDetails) {
                             VStack(alignment: .leading, spacing: 20) {
                                 info("课程类型", items: course.courseTypes)
                                 info("适用人群", items: course.suitableFor)
-                                info("不适宜人群", items: course.contraindications, fallback: "原课程未列出这一栏")
+                                info("不适宜人群", items: course.contraindications)
                                 Text("来源：\(course.source.application)\(course.source.provider.flatMap { $0 == "unverified" ? nil : " · " + $0 } ?? "")")
                                     .font(.system(size: 13)).foregroundStyle(Palette.secondary)
                             }.padding(.top, 16)
@@ -147,8 +182,7 @@ struct CoursesView: View {
 
     private func metadata(_ course: Course) -> some View {
         HStack(spacing: 9) {
-            Text(course.difficulty)
-            Text("·")
+            if !course.difficulty.isEmpty { Text(course.difficulty); Text("·") }
             Text("\(course.displayDurationMinutes) 分钟")
             if let kcal = course.estimatedKcal { Text("·"); Text("参考 \(kcal) 千卡") }
         }
@@ -159,6 +193,7 @@ struct CoursesView: View {
     }
     private func loadSelection(force: Bool = false) {
         guard let selected, force || player.courseID != selected.id else { return }
+        if selected.media?.webpage != nil { player.unload(); return }
         player.load(selected, url: library.mediaURL(for: selected))
     }
     private func video(_ course: Course) -> some View {
@@ -219,7 +254,10 @@ struct CoursesView: View {
                             Text(error).font(.system(size: 13)).foregroundStyle(.orange)
                             HStack {
                                 Button("重新加载") { player.load(course, url: library.mediaURL(for: course)) }
-                                if course.media?.url != nil, !player.videoAvailableOffline {
+                                if let page = course.media?.originalPage?.url {
+                                    Button("打开原网页") { NSWorkspace.shared.open(page) }
+                                }
+                                if course.media?.url != nil, course.media?.originalPage == nil, !player.videoAvailableOffline {
                                     Button("缓存后再播放") { player.playFromCache(course) }.disabled(player.caching)
                                 }
                             }.font(.system(size: 13))
@@ -405,4 +443,11 @@ struct CourseVideoSurface: NSViewRepresentable {
         let width = proposal.width ?? 640
         return CGSize(width: width, height: width / aspectRatio)
     }
+}
+
+@MainActor
+private final class CourseManagementState: ObservableObject {
+    @Published var editorVisible = false
+    @Published var editingCourse: Course?
+    @Published var removingCourse: Course?
 }

@@ -57,6 +57,9 @@ struct ReminderWorkoutView: View {
                         Spacer()
                         Text(course.difficulty).font(.system(size: 14)).foregroundStyle(Palette.secondary)
                     }
+                    if let webpage = course.media?.webpage {
+                        WebCourseView(url: webpage.url, playbackURL: course.media?.webPlaybackURL).id(course.id)
+                    } else {
                     GeometryReader { geometry in
                         ZStack {
                             if player.loading {
@@ -65,12 +68,14 @@ struct ReminderWorkoutView: View {
                             } else { CourseVideoSurface(player: player.player, aspectRatio: player.videoAspectRatio) }
                         }.frame(width: geometry.size.width, height: geometry.size.height)
                     }.aspectRatio(player.videoAspectRatio, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 18))
+                    }
                     if let preparation = course.preparation, !preparation.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("练习准备").font(.system(size: 15, weight: .semibold))
                             ForEach(preparation, id: \.self) { Text($0).font(.system(size: 14)).foregroundStyle(Palette.secondary).fixedSize(horizontal: false, vertical: true) }
                         }
                     }
+                    if !course.actions.isEmpty || !course.description.isEmpty || !(course.bodyResponses ?? []).isEmpty {
                     DisclosureGroup("动作与课程说明") {
                         VStack(alignment: .leading, spacing: 14) {
                             Text(course.description).font(.system(size: 14)).lineSpacing(5)
@@ -84,8 +89,10 @@ struct ReminderWorkoutView: View {
                             ForEach(course.bodyResponses ?? [], id: \.self) { Text($0).font(.system(size: 14)).foregroundStyle(Palette.secondary) }
                         }.padding(.top, 12)
                     }.font(.system(size: 14, weight: .medium))
+                    }
                 }.frame(maxWidth: 1000).frame(maxWidth: .infinity).padding(.bottom, 12)
             }
+            if course.media?.webpage == nil {
             VStack(alignment: .leading, spacing: 12) {
                     ProgressView(value: player.duration > 0 ? player.position / player.duration : 0).tint(Palette.accent)
                     HStack(spacing: 14) {
@@ -104,15 +111,17 @@ struct ReminderWorkoutView: View {
                             Text(error).foregroundStyle(.orange)
                             HStack {
                                 Button("重新加载") { player.load(course, url: model.library.mediaURL(for: course)) }
-                                if !player.videoAvailableOffline, course.media?.url != nil {
+                                if !player.videoAvailableOffline, course.media?.url != nil, course.media?.originalPage == nil {
                                     Button("缓存后再播放") { player.playFromCache(course) }.disabled(player.caching)
                                 }
                             }
                         }.font(.system(size: 14))
                     }
             }.fixedSize(horizontal: false, vertical: true).padding(.top, 4).padding(.bottom, 8)
+            }
         }.padding(24).background(Palette.background).foregroundStyle(Palette.ink).tint(Palette.accent)
             .task(id: course.id) {
+                guard course.media?.webpage == nil else { return }
                 for _ in 0..<350 {
                     guard !Task.isCancelled else { return }
                     if !player.loading {

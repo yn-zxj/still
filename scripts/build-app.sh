@@ -19,7 +19,7 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 lipo -create "${binaries[@]}" -output "$app_dir/Contents/MacOS/Still"
 cp "$project_dir/Resources/Info.plist" "$app_dir/Contents/Info.plist"
 if [ -f "$project_dir/Resources/AppIcon.icns" ]; then cp "$project_dir/Resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"; fi
-cat "$project_dir/Resources/Lucide/LICENSE" "$project_dir/Resources/Models/LICENSE-OpenPose.txt" > "$app_dir/Contents/Resources/ThirdPartyNotices.txt"
+cat "$project_dir/Resources/Lucide/LICENSE" "$project_dir/Resources/Models/LICENSE-OpenPose.txt" "$project_dir/Resources/VideoParser/LICENSE-media-parser.txt" > "$app_dir/Contents/Resources/ThirdPartyNotices.txt"
 cp "$project_dir/Resources/Models/LICENSE-OpenPose.txt" "$app_dir/Contents/Resources/LICENSE-OpenPose.txt"
 cp "$project_dir/Resources/Models/StillPose.mlmodel" "$app_dir/Contents/Resources/StillPose.mlmodel"
 cp "$project_dir/Resources/Models/SOURCE.json" "$app_dir/Contents/Resources/PoseModelSource.json"

@@ -32,6 +32,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
             if !settings.remindersEnabled || oldValue.reminderStyle != settings.reminderStyle { clearDueNotification() }
             if oldValue.appearanceTheme != settings.appearanceTheme { applyAppearance?() }
+            if !settings.coursesEnabled && oldValue.coursesEnabled {
+                coursePlayer.stop()
+                if inReminderTraining { hideAllReminders?() }
+                if page == .courses { page = .settings }
+            }
             if oldValue.dockIconVisible != settings.dockIconVisible { applyDockVisibility?() }
             if oldValue.postureThresholds != settings.postureThresholds { posture.updateThresholds(settings.postureThresholds) }
             if oldValue.postureEnabled != settings.postureEnabled {
@@ -243,7 +248,8 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
 
     var reminderCandidates: [Course] {
-        library.courses.filter { course in
+        guard settings.coursesEnabled else { return [] }
+        return library.courses.filter { course in
             guard course.media != nil, course.displayDurationMinutes <= 10,
                   !course.title.contains("按摩") else { return false }
             let preparation = (course.preparation ?? []).joined()
@@ -271,7 +277,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
     }
 
-    func openCourses() { hideAllReminders?(); page = .courses; showDashboard?() }
+    func openCourses() { guard settings.coursesEnabled else { return }; hideAllReminders?(); page = .courses; showDashboard?() }
 
     func endRest() { if coursePlayer.active { coursePlayer.stop(); return }; engine.interruptRest(currentSample()); hideReminder?(); save(); refreshMenu?() }
     func snooze(skipped: Bool = false) { if coursePlayer.active { coursePlayer.stop() }; clearDueNotification(); engine.snooze(currentSample(), skipped: skipped); hideReminder?(); save(); refreshMenu?() }
