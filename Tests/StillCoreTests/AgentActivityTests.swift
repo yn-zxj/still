@@ -150,7 +150,8 @@ struct AgentActivityTests {
         let window = DayTimelineWindow(date: now, now: now, calendar: calendar)
         #expect(abs(window.elapsedFraction - (14.0 * 60 + 25) / (24 * 60)) < 0.0001)
         #expect(window.visible.end == now)
-        #expect(window.marks(everyHours: 6, calendar: calendar).allSatisfy { $0 <= now })
+        #expect(abs(window.fraction(for: now) - window.elapsedFraction) < 0.0001)
+        #expect(window.marks(everyHours: 6, calendar: calendar).last == window.day.end)
         #expect(window.reducedSampleCount(varCount: 24) == 15)
     }
 }

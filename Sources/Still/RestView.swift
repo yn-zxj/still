@@ -473,23 +473,8 @@ private struct MenuUsageChart: View {
         DayTimelineWindow(date: date, now: date)
     }
 
-    private var allValues: [Double] {
-        let calendar = Calendar.current
-        guard let day = calendar.dateInterval(of: .day, for: date) else { return Array(repeating: 0, count: 24) }
-        return (0..<24).map { hour in
-            guard let start = calendar.date(byAdding: .hour, value: hour, to: day.start),
-                  let end = calendar.date(byAdding: .hour, value: 1, to: start) else { return 0 }
-            let interval = DateInterval(start: start, end: min(end, day.end))
-            return min(1, segments.reduce(0) { $0 + $1.seconds(in: interval) } / interval.duration)
-        }
-    }
-
-    private var values: [Double] {
-        Array(allValues.prefix(window.reducedSampleCount(varCount: allValues.count)))
-    }
-
-    private var latestIndex: Int? {
-        values.lastIndex(where: { $0 > 0.001 })
+    private var points: [UsageActivityPoint] {
+        UsageStatistics.activity(segments: segments, date: date)
     }
 
     var body: some View {
@@ -498,7 +483,7 @@ private struct MenuUsageChart: View {
                 Text("今日使用")
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
-                Text("每小时活跃度")
+                Text("每 5 分钟活跃度")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondary)
             }
@@ -523,7 +508,7 @@ private struct MenuUsageChart: View {
                                 .frame(height: 1)
                                 .offset(y: size.height * CGFloat(index) / 4)
                         }
-                        MenuUsageArea(values: values)
+                        MenuUsageArea(points: points)
                             .fill(
                                 LinearGradient(
                                     colors: [Palette.accent.opacity(0.2), Palette.accent.opacity(0.01)],
@@ -532,7 +517,7 @@ private struct MenuUsageChart: View {
                                 )
                             )
                             .opacity(revealState.revealed ? 1 : 0)
-                        MenuUsageLine(values: values)
+                        MenuUsageLine(points: points)
                             .trim(from: 0, to: revealState.revealed ? 1 : 0)
                             .stroke(
                                 LinearGradient(
@@ -542,15 +527,15 @@ private struct MenuUsageChart: View {
                                 ),
                                 style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
                             )
-                        if let latestIndex, revealState.revealed {
+                        if let latest = points.last, revealState.revealed {
                             Circle()
                                 .fill(Palette.accent)
                                 .overlay(Circle().stroke(Palette.surface, lineWidth: 1.5))
                                 .frame(width: 7, height: 7)
                                 .shadow(color: Palette.accent.opacity(0.28), radius: 3)
                                 .offset(
-                                    x: size.width * (CGFloat(latestIndex) + 0.5) / CGFloat(max(1, values.count)) - 3.5,
-                                    y: size.height * (1 - CGFloat(values[latestIndex])) - 3.5
+                                    x: size.width * latest.fraction - 3.5,
+                                    y: size.height * (1 - CGFloat(latest.activity)) - 3.5
                                 )
                         }
                     }
@@ -561,12 +546,12 @@ private struct MenuUsageChart: View {
 
             GeometryReader { proxy in
                 ForEach(window.marks(everyHours: 6), id: \.self) { mark in
-                    Text(timelineTimeText(mark))
+                    Text(mark == window.day.end ? "24:00" : timelineTimeText(mark))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Palette.secondary.opacity(0.78))
                         .frame(width: 40)
                         .position(
-                            x: 44 + (proxy.size.width - 44) * window.fraction(for: mark),
+                            x: min(proxy.size.width - 20, max(64, 44 + (proxy.size.width - 44) * window.fraction(for: mark))),
                             y: 6
                         )
                 }
@@ -581,7 +566,7 @@ private struct MenuUsageChart: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.75), value: revealState.revealed)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("今日每小时活跃度图")
+        .accessibilityLabel("今日每五分钟活跃度图")
     }
 }
 
@@ -590,34 +575,27 @@ private final class MenuUsageChartRevealState: ObservableObject {
 }
 
 private struct MenuUsageLine: Shape {
-    let values: [Double]
+    let points: [UsageActivityPoint]
     func path(in rect: CGRect) -> Path {
-        guard !values.isEmpty else { return Path() }
         var path = Path()
-        for (index, value) in values.enumerated() {
-            let point = CGPoint(
-                x: rect.width * (CGFloat(index) + 0.5) / CGFloat(values.count),
-                y: rect.height * (1 - CGFloat(value))
-            )
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        for (index, point) in points.enumerated() {
+            let position = CGPoint(x: rect.width * point.fraction, y: rect.height * (1 - point.activity))
+            if index == 0 { path.move(to: position) } else { path.addLine(to: position) }
         }
         return path
     }
 }
 
 private struct MenuUsageArea: Shape {
-    let values: [Double]
+    let points: [UsageActivityPoint]
     func path(in rect: CGRect) -> Path {
-        guard !values.isEmpty else { return Path() }
+        guard let first = points.first, let last = points.last else { return Path() }
         var path = Path()
-        path.move(to: CGPoint(x: rect.width * 0.5 / CGFloat(values.count), y: rect.height))
-        for (index, value) in values.enumerated() {
-            path.addLine(to: CGPoint(
-                x: rect.width * (CGFloat(index) + 0.5) / CGFloat(values.count),
-                y: rect.height * (1 - CGFloat(value))
-            ))
+        path.move(to: CGPoint(x: rect.width * first.fraction, y: rect.height))
+        for point in points {
+            path.addLine(to: CGPoint(x: rect.width * point.fraction, y: rect.height * (1 - point.activity)))
         }
-        path.addLine(to: CGPoint(x: rect.width * (CGFloat(values.count) - 0.5) / CGFloat(values.count), y: rect.height))
+        path.addLine(to: CGPoint(x: rect.width * last.fraction, y: rect.height))
         path.closeSubpath()
         return path
     }

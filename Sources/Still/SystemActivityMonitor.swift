@@ -48,8 +48,24 @@ final class SystemActivityMonitor {
         // kCGAnyInputEventType is the documented sentinel, not CGEventType.null (0).
         let anyIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
         let foreground = includeForegroundApplication ? Self.foregroundApplication() : nil
-        return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: anyIdle.isFinite ? max(0, anyIdle) : 0,
-                              available: suspendedReasons.isEmpty, foregroundApplication: foreground)
+        return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: anyIdle.isFinite ? max(0, anyIdle) : .infinity,
+                              available: suspendedReasons.isEmpty && Self.sessionAvailable(), foregroundApplication: foreground)
+    }
+
+    // Notifications describe transitions; these queries also cover startup while
+    // asleep/locked and transitions whose notification was missed.
+    private static func sessionAvailable() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+              session[kCGSessionOnConsoleKey as String] as? Bool == true,
+              session["CGSSessionScreenIsLocked"] as? Bool != true else { return false }
+        var displays = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else {
+            return false
+        }
+        return displays.prefix(Int(count)).contains {
+            CGDisplayIsActive($0) != 0 && CGDisplayIsAsleep($0) == 0
+        }
     }
 
     private static func foregroundApplication() -> ForegroundApplication? {

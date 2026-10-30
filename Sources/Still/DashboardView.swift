@@ -259,15 +259,15 @@ struct DayTimeline: View {
                             let start = max(segment.startedAt, window.visible.start)
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(segment.mode == .reading ? Palette.green.opacity(0.65) : Palette.accent.opacity(0.7))
-                                .frame(width: max(2, geo.size.width * end.timeIntervalSince(start) / window.visible.duration), height: 18)
-                                .offset(x: geo.size.width * start.timeIntervalSince(window.visible.start) / window.visible.duration)
+                                .frame(width: max(2, geo.size.width * end.timeIntervalSince(start) / window.day.duration), height: 18)
+                                .offset(x: geo.size.width * start.timeIntervalSince(window.visible.start) / window.day.duration)
                         }
                     }
                 }.clipShape(RoundedRectangle(cornerRadius: 6))
             }.frame(height: 18)
             GeometryReader { geo in
                 ForEach(window.marks(), id: \.self) { mark in
-                    Text(timelineTimeText(mark))
+                    Text(mark == window.day.end ? "24:00" : timelineTimeText(mark))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Palette.secondary.opacity(0.8))
                         .frame(width: 48)

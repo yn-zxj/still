@@ -1,7 +1,6 @@
 import Foundation
 
-/// A bounded day timeline that ends at the current moment instead of drawing hours
-/// which have not happened yet.
+/// A full-day axis with observations clipped at the current moment.
 public struct DayTimelineWindow: Equatable {
     public let day: DateInterval
     public let visible: DateInterval
@@ -24,7 +23,7 @@ public struct DayTimelineWindow: Equatable {
     }
 
     public func fraction(for date: Date) -> Double {
-        min(1, max(0, date.timeIntervalSince(visible.start) / max(visible.duration, 1)))
+        min(1, max(0, date.timeIntervalSince(visible.start) / max(day.duration, 1)))
     }
 
     public func visibleEnd(for start: Date, end: Date) -> Date? {
@@ -33,21 +32,12 @@ public struct DayTimelineWindow: Equatable {
         return clippedEnd > clippedStart ? clippedEnd : nil
     }
 
-    /// Whole-hour anchors up to the current time. The current minute is appended
-    /// when it does not coincide with a whole-hour mark.
+    /// Fixed 00–24 hour anchors. Future data is still clipped by visibleEnd.
     public func marks(everyHours step: Int = 6, calendar: Calendar = .current) -> [Date] {
-        let stride = max(1, step)
-        var result: [Date] = []
-        for hour in Swift.stride(from: 0, to: 24, by: stride) {
-            guard let mark = calendar.date(byAdding: .hour, value: hour, to: day.start),
-                  mark <= visible.end else { continue }
-            result.append(mark)
+        var result = Swift.stride(from: 0, to: 24, by: max(1, step)).compactMap {
+            calendar.date(byAdding: .hour, value: $0, to: day.start)
         }
-        if let last = result.last,
-           visible.end.timeIntervalSince(last) < 2 * 3_600 {
-            return result
-        }
-        result.append(visible.end)
+        result.append(day.end)
         return result
     }
 

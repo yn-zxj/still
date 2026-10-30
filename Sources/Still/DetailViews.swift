@@ -6,6 +6,9 @@ struct HistoryView: View {
     @ObservedObject var model: AppModel
     private var days: Int { model.historyDays }
     private var summaries: [DailySummary] { UsageStatistics.daily(segments: model.engine.segments, breaks: model.engine.breaks, endingAt: model.engine.now, days: days) }
+    private var coveredDays: Int {
+        UsageStatistics.coveredDays(startedAt: model.recordingStartedAt, endingAt: model.engine.now, days: days)
+    }
     private var chartInHours: Bool { (summaries.map(\.seconds).max() ?? 0) >= 3600 }
     private var chartUnit: Double { chartInHours ? 3600 : 60 }
     var body: some View {
@@ -17,7 +20,7 @@ struct HistoryView: View {
             }
             HStack(spacing: 16) {
                 metric("累计使用", durationText(summaries.reduce(0) { $0 + $1.seconds }), "过去 \(days) 天")
-                metric("日均使用", durationText(summaries.reduce(0) { $0 + $1.seconds } / Double(days)), "包含未使用的日期")
+                metric("日均使用", durationText(summaries.reduce(0) { $0 + $1.seconds } / Double(max(1, coveredDays))), "按已记录的 \(coveredDays) 天计算（含今天）")
                 metric("完成休息", "\(summaries.reduce(0) { $0 + $1.completedBreaks }) 次", "完成次数")
             }
             VStack(alignment: .leading, spacing: 27) {

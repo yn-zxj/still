@@ -14,6 +14,49 @@ struct UsageEngineTests {
         for second in from...to { engine.tick(sample(Double(second), idle: idleSince.map { Double(max(0, second - $0)) } ?? 0)) }
     }
 
+    @Test func readingCannotAccumulateWhileDisplayUnavailableOrAcrossWakeGap() {
+        var settings = MonitorSettings(); settings.mode = .reading
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        let fatigue = engine.fatigueWorkSeconds
+        for second in 61...180 { engine.tick(sample(Double(second), idle: 500, available: false)) }
+        #expect(engine.roundSeconds == 60)
+        #expect(engine.fatigueWorkSeconds == fatigue)
+        engine.tick(sample(3600, available: true))
+        #expect(engine.roundSeconds == 60)
+        engine.tick(sample(3601, available: true))
+        #expect(engine.roundSeconds == 61)
+    }
+
+    @Test func averageOnlyIncludesCalendarDaysSinceRecordingBegan() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 28800))
+        let today = calendar.startOfDay(for: origin)
+        let yesterday = try #require(calendar.date(byAdding: .day, value: -1, to: today))
+        #expect(UsageStatistics.coveredDays(startedAt: yesterday, endingAt: origin, days: 7, calendar: calendar) == 2)
+        #expect(UsageStatistics.coveredDays(startedAt: yesterday, endingAt: origin, days: 28, calendar: calendar) == 2)
+        let thirtyDaysAgo = try #require(calendar.date(byAdding: .day, value: -30, to: today))
+        #expect(UsageStatistics.coveredDays(startedAt: thirtyDaysAgo, endingAt: origin, days: 7, calendar: calendar) == 7)
+        #expect(UsageStatistics.coveredDays(startedAt: thirtyDaysAgo, endingAt: origin, days: 28, calendar: calendar) == 28)
+        #expect(UsageStatistics.coveredDays(startedAt: origin, endingAt: origin, days: 7, calendar: calendar) == 1)
+    }
+
+    @Test func fineActivityCurveKeepsGapsAndFutureTimeBlank() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let day = calendar.startOfDay(for: origin)
+        let start = day.addingTimeInterval(9 * 3600)
+        let segment = UsageSegment(roundID: UUID(), startedAt: start, endedAt: start.addingTimeInterval(300), seconds: 300, mode: .activity)
+        let now = start.addingTimeInterval(750)
+        let points = UsageStatistics.activity(segments: [segment], date: now, calendar: calendar)
+        #expect(points.map(\.activity) == [0, 1, 0, 0])
+        let expectedFraction = 33150.0 / 86400.0
+        let lastFraction = points.last?.fraction ?? 0
+        #expect(abs(lastFraction - expectedFraction) < 0.0001)
+        #expect(points.allSatisfy { $0.fraction < 1 })
+        #expect(UsageStatistics.activity(segments: [], date: now).isEmpty)
+    }
+
     @Test func testElapsedTimeAndSingleDueReminder() {
         var settings = MonitorSettings(); settings.workMinutes = 1
         var engine = UsageEngine(settings: settings)

@@ -176,7 +176,41 @@ public struct DailySummary: Identifiable {
     public var id: Date { date }
 }
 
+public struct UsageActivityPoint: Equatable {
+    public var fraction: Double
+    public var activity: Double
+}
+
 public enum UsageStatistics {
+    /// Include zero-use days after collection began, never dates before installation.
+    public static func coveredDays(startedAt: Date, endingAt: Date, days: Int,
+                                   calendar: Calendar = .current) -> Int {
+        guard startedAt <= endingAt else { return 0 }
+        let elapsed = calendar.dateComponents([.day], from: calendar.startOfDay(for: startedAt),
+                                               to: calendar.startOfDay(for: endingAt)).day ?? 0
+        return min(max(1, days), max(1, elapsed + 1))
+    }
+
+    /// Five-minute occupancy samples, positioned on a fixed full-day axis.
+    /// Future time is absent; the unfinished bucket uses only elapsed time.
+    public static func activity(segments: [UsageSegment], date: Date,
+                                calendar: Calendar = .current) -> [UsageActivityPoint] {
+        let window = DayTimelineWindow(date: date, now: date, calendar: calendar)
+        let relevant = segments.filter { $0.seconds(in: window.visible) > 0 }
+        guard let first = relevant.map(\.startedAt).min() else { return [] }
+        let offset = max(0, first.timeIntervalSince(window.day.start))
+        var start = window.day.start.addingTimeInterval(floor(offset / 300) * 300)
+        var result = [UsageActivityPoint(fraction: window.fraction(for: start), activity: 0)]
+        while start < window.visible.end {
+            let end = min(start.addingTimeInterval(300), window.visible.end)
+            let interval = DateInterval(start: start, end: end)
+            let value = min(1, max(0, relevant.reduce(0) { $0 + $1.seconds(in: interval) } / interval.duration))
+            result.append(UsageActivityPoint(fraction: window.fraction(for: end), activity: value))
+            start = end
+        }
+        return result
+    }
+
     public static func daily(segments: [UsageSegment], breaks: [BreakRecord], endingAt date: Date,
                              days: Int, calendar: Calendar = .current) -> [DailySummary] {
         let today = calendar.startOfDay(for: date)

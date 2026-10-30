@@ -68,6 +68,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     let updater = AppUpdater()
     let library: CourseLibrary
     let coursePlayer: CoursePlayer
+    private(set) var recordingStartedAt = Date()
     let isUITest: Bool
     private let defaults: UserDefaults
     private let monitor: SystemActivityMonitor
@@ -131,6 +132,10 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         engine = UsageEngine(settings: initial, segments: savedSegments,
                              applicationSegments: savedApplications, breaks: savedBreaks,
                              checkpoint: checkpoint)
+        let earliest = (savedSegments.map(\.startedAt) + savedBreaks.map(\.startedAt)).min()
+        let persistedStart = defaults.object(forKey: "usage.recordingStartedAt") as? Date
+        recordingStartedAt = min(persistedStart ?? earliest ?? Date(), earliest ?? persistedStart ?? Date())
+        if !isUITest { defaults.set(recordingStartedAt, forKey: "usage.recordingStartedAt") }
         storageError = diskError
         super.init()
         if !isUITest, let data = defaults.data(forKey: "reminder.courseRotation.v1"),

@@ -613,8 +613,8 @@ private struct TimelineRibbon: View {
                     ForEach(visible) { segment in
                         if let end = window.visibleEnd(for: segment.startedAt, end: segment.endedAt) {
                             let start = max(segment.startedAt, window.visible.start)
-                            let x = proxy.size.width * start.timeIntervalSince(window.visible.start) / window.visible.duration
-                            let width = max(2, proxy.size.width * end.timeIntervalSince(start) / window.visible.duration)
+                            let x = proxy.size.width * start.timeIntervalSince(window.visible.start) / window.day.duration
+                            let width = max(2, proxy.size.width * end.timeIntervalSince(start) / window.day.duration)
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .fill(segment.category.color.opacity(0.86))
                                 .frame(width: width * (state.revealed ? 1 : 0.1), height: laneHeight)
@@ -626,8 +626,8 @@ private struct TimelineRibbon: View {
                             ForEach(session.spans) { span in
                                 if let end = window.visibleEnd(for: span.startedAt, end: span.endedAt) {
                                     let start = max(span.startedAt, window.visible.start)
-                                    let x = proxy.size.width * start.timeIntervalSince(window.visible.start) / window.visible.duration
-                                    let width = max(2, proxy.size.width * end.timeIntervalSince(start) / window.visible.duration)
+                                    let x = proxy.size.width * start.timeIntervalSince(window.visible.start) / window.day.duration
+                                    let width = max(2, proxy.size.width * end.timeIntervalSince(start) / window.day.duration)
                                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                                         .fill(Palette.green.opacity(0.82))
                                         .frame(width: width * (state.revealed ? 1 : 0.1), height: laneHeight)
@@ -656,7 +656,7 @@ private struct TimelineRibbon: View {
             }
             GeometryReader { proxy in
                 ForEach(window.marks(), id: \.self) { mark in
-                    Text(timelineTimeText(mark))
+                    Text(mark == window.day.end ? "24:00" : timelineTimeText(mark))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Palette.secondary.opacity(0.8))
                         .frame(width: 44)
