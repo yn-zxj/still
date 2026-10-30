@@ -11,7 +11,7 @@ test "$minimum" = '13.0'
 read -r -a architectures <<< "$(lipo -archs "$binary")"
 test "${#architectures[@]}" -eq 2
 for architecture in arm64 x86_64; do
-    lipo -verify_arch "$architecture" "$binary"
+    lipo "$binary" -verify_arch "$architecture"
     build_info="$(xcrun vtool -arch "$architecture" -show-build "$binary")"
     actual_minimum="$(awk '$1 == "minos" {print $2}' <<< "$build_info")"
     test "$actual_minimum" = "$minimum"
