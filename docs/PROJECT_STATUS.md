@@ -18,7 +18,7 @@ GitHub 公开仓库：https://github.com/yn-zxj/still 。主分支 `main`，已�
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.7.0 / build 29（本地验证中；正式 Release 仍为 0.6.0）
+## 当前实现：0.7.0 / build 29（正式发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -488,7 +488,14 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 
 - 主内容面板改用四角同半径的连续圆角裁切和描边，右上、右下与左侧保持一致；删除仅供左侧圆角使用的旧自定义 Shape。
 - 普通 `/Applications/息间.app` 实机确认内容面板四角完整、上下留白一致；时间去向卡片等高与滚动布局未回归。
-- 151 项测试与通用构建通过，arm64、x86_64 的最低系统版本均为 macOS 13。未创建标签或 GitHub Release。
+- 发布前 151 项测试与通用构建通过，arm64、x86_64 的最低系统版本均为 macOS 13。
+
+### 0.7.0 正式发布
+
+- 提交 `d2a8861accf297e05e301f9188a8bf3a5e1ee88c` 已创建并推送标签 `v0.7.0`。标签流水线 `41167646518` 完成 151 项测试、通用构建、macOS 14 Apple Silicon 原生启动、Intel 原生启动和 GitHub Release 发布。
+- 正式 Release：[v0.7.0](https://github.com/yn-zxj/still/releases/tag/v0.7.0)。附件为 `Still-0.7.0-29-x86_64-arm64-macos.zip`、侧车 SHA-256 和 `artifact-manifest.json`，均状态为 uploaded。
+- 已通过匿名 Release 链接重新下载三项附件。ZIP 大小 `11,732,601` 字节，SHA-256 `2921883f012085a8851b47e8ce05ffb643d72c91c5b937ebd8c6213654738fae` 与侧车和 GitHub 摘要一致；压缩完整性检查通过。
+- 下载审计确认 Bundle 为 `local.still.app`、0.7.0 (29)、`x86_64 arm64` 通用架构、两个切片最低 macOS 13.0；严格代码签名验证和内置 Bundle/OpenPose 模型校验通过。产物仍为 ad-hoc 签名，未使用 Developer ID，也未通过 Apple 公证。
 
 ### 0.7.0 build 29 坐姿布局与课程表单修复
 
