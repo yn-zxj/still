@@ -541,4 +541,5 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 已通过公开 Release 地址匿名重新下载三项附件。ZIP 大小 `11,726,292` 字节，SHA-256 `104cbbc32028bdb3de44cf3f750bd4f092a1b70d42cb6b680783a984f6483c42`，与侧车、GitHub 摘要和 Release 说明一致；匿名下载、摘要与压缩完整性检查通过。
 - 下载审计确认 Bundle 为 `local.still.app`、0.7.2 (32)、`x86_64 arm64`、两个切片最低 macOS 13.0；严格代码签名、Bundle 启动、OpenPose 模型加载与摘要校验通过。压缩包共 13 个文件，没有第三方课程媒体、使用数据库、CSV、活动日志、凭据或密钥。
 - 普通 `/Applications/息间.app` 已正常退出后替换为审计过的公开 Release 包，真实数据库、设置和课程库保留。实机确认设置页当前版本为 0.7.2，自动检测、前台界面活动状态和活动日志入口正常显示。
+- 已安装审计包实际点击“检查更新”，应用匿名读取公开 GitHub Release 后显示“当前已是最新版本（0.7.2）”，无需账号、令牌或私有仓库权限。
 - 产物仍为 ad-hoc 签名，未使用 Developer ID，也未通过 Apple 公证；升级后系统可能要求重新授权键盘辅助。纯静止阅读、长时间静音无界面更新、无人观看的持续音频、长时能耗和实体 Intel macOS 14 设备仍需继续使用验收。
