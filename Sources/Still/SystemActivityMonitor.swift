@@ -5,7 +5,7 @@ import StillCore
 
 @MainActor
 final class SystemActivityMonitor: ObservableObject {
-    let screenActivity = ScreenActivityMonitor()
+    let playbackActivity = PlaybackActivityMonitor()
     @Published private(set) var keyboardAuthorized = false
     @Published private(set) var keyboardStatus = "使用基础检测"
     private let keyboard = KeyboardActivityListener()
@@ -62,11 +62,11 @@ final class SystemActivityMonitor: ObservableObject {
         let state = suspendedReasons.isEmpty ? Self.sessionState() : .inactive
         let available = state == .available
         refreshKeyboardPermission(enableMonitoring: available && allowAuxiliaryDetection)
-        screenActivity.update(available: available && allowAuxiliaryDetection)
+        playbackActivity.update(available: available && allowAuxiliaryDetection)
         let now = ProcessInfo.processInfo.systemUptime
         let keyboardIdle = keyboard.lastActivity.map { max(0, now - $0) }
-        let visualIdle = allowAuxiliaryDetection ? screenActivity.idleSeconds(at: now) : nil
-        let idle = InputActivityTiming.latest([systemIdle, keyboardIdle, visualIdle].compactMap { $0 })
+        let playbackIdle = allowAuxiliaryDetection ? playbackActivity.idleSeconds(at: now) : nil
+        let idle = InputActivityTiming.latest([systemIdle, keyboardIdle, playbackIdle].compactMap { $0 })
         let foreground = includeForegroundApplication ? Self.foregroundApplication() : nil
         return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: idle ?? 0,
             available: state == .available && idle != nil, foregroundApplication: foreground,
@@ -96,7 +96,7 @@ final class SystemActivityMonitor: ObservableObject {
         keyboardStatus = keyboard.start() ? "已运行 · 只记录键盘活动时间" : "辅助监听暂不可用 · 使用基础检测"
     }
     func shutdown() {
-        screenActivity.shutdown()
+        playbackActivity.shutdown()
         keyboard.stop()
     }
 
