@@ -120,9 +120,11 @@ public struct UsageEngine {
             if restRemaining == 0 { finishRest(at: sample.date) }
             return
         }
-        // Explicit screen/session unavailability is rest evidence in both modes.
+        // Only explicit screen/session unavailability is rest evidence.
         // An arbitrary timer/process gap is still unknown and earns no recovery.
-        if let began = unavailableSince {
+        if !sample.available && !sample.inactivityConfirmed {
+            unavailableSince = nil
+        } else if let began = unavailableSince {
             let elapsed = sample.date.timeIntervalSince(began)
             let monotonicElapsed = previous.map { sample.monotonic - $0.monotonic }
             let clockConsistent = monotonicElapsed.map { $0 >= 0 && abs($0 - elapsed) < 5 } ?? true

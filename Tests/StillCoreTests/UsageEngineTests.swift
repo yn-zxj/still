@@ -466,4 +466,28 @@ struct UsageEngineTests {
         #expect(engine.breaks.isEmpty)
     }
 
+    @Test func unknownAvailabilityCannotRecoverFatigueOrBridgeAnAbsence() {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        engine.tick(sample(61, available: false))
+        var unknown = sample(120, available: false)
+        unknown.inactivityConfirmed = false
+        engine.tick(unknown)
+        engine.tick(sample(180))
+        #expect(engine.fatiguePercent == 100)
+        #expect(engine.roundSeconds == 60)
+        #expect(engine.checkpoint.unavailableSince == nil)
+        engine.tick(sample(181))
+        #expect(engine.roundSeconds == 61)
+    }
+
+    @Test func inputTimingIncludesKeyboardPointerAndScrollButRejectsInvalidQueries() {
+        #expect(InputActivityTiming.latest([100, 0.3, 200]) == 0.3)
+        #expect(InputActivityTiming.latest([100, 200, 0]) == 0)
+        #expect(InputActivityTiming.latest([.infinity, .nan, -1, 45]) == 45)
+        #expect(InputActivityTiming.latest([.infinity, .nan, -1]) == nil)
+        #expect(InputActivityTiming.latest([]) == nil)
+    }
+
 }

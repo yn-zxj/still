@@ -45,27 +45,37 @@ final class SystemActivityMonitor {
     func sample(includeForegroundApplication: Bool = false) -> ActivitySample {
         let elapsed = origin.duration(to: clock.now).components
         let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-        // kCGAnyInputEventType is the documented sentinel, not CGEventType.null (0).
-        let anyIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
+        // Query keyboard, pointer and scrolling separately. Do not let unrelated
+        // event classes make a stationary computer appear continuously active.
+        let types: [CGEventType] = [.keyDown, .keyUp, .flagsChanged, .mouseMoved,
+            .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+            .rightMouseDown, .rightMouseUp, .rightMouseDragged,
+            .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel]
+        let idle = InputActivityTiming.latest(types.map {
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0)
+        })
+        let state = suspendedReasons.isEmpty ? Self.sessionState() : .inactive
         let foreground = includeForegroundApplication ? Self.foregroundApplication() : nil
-        return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: anyIdle.isFinite ? max(0, anyIdle) : .infinity,
-                              available: suspendedReasons.isEmpty && Self.sessionAvailable(), foregroundApplication: foreground)
+        return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: idle ?? 0,
+            available: state == .available && idle != nil, foregroundApplication: foreground,
+            inactivityConfirmed: state == .inactive)
     }
 
-    // Notifications describe transitions; these queries also cover startup while
-    // asleep/locked and transitions whose notification was missed.
-    private static func sessionAvailable() -> Bool {
+    private enum SessionState { case available, inactive, unknown }
+
+    // Notifications describe transitions; queries also cover startup and missed
+    // transitions. Failed queries must not manufacture a confirmed rest period.
+    private static func sessionState() -> SessionState {
         guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
-              session[kCGSessionOnConsoleKey as String] as? Bool == true,
-              session["CGSSessionScreenIsLocked"] as? Bool != true else { return false }
+              let onConsole = session[kCGSessionOnConsoleKey as String] as? Bool else { return .unknown }
+        guard onConsole, session["CGSSessionScreenIsLocked"] as? Bool != true else { return .inactive }
         var displays = [CGDirectDisplayID](repeating: 0, count: 32)
         var count: UInt32 = 0
-        guard CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else {
-            return false
-        }
-        return displays.prefix(Int(count)).contains {
-            CGDisplayIsActive($0) != 0 && CGDisplayIsAsleep($0) == 0
-        }
+        guard CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success,
+              count > 0 else { return .unknown }
+        let online = displays.prefix(Int(count))
+        if online.contains(where: { CGDisplayIsActive($0) != 0 && CGDisplayIsAsleep($0) == 0 }) { return .available }
+        return online.allSatisfy { CGDisplayIsAsleep($0) != 0 } ? .inactive : .unknown
     }
 
     private static func foregroundApplication() -> ForegroundApplication? {

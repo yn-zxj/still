@@ -149,11 +149,14 @@ public struct ActivitySample {
     public var monotonic: Double
     public var idleSeconds: Double
     public var available: Bool
+    /// False for a failed status/input query: unknown time is neither work nor rest.
+    public var inactivityConfirmed: Bool
     public var foregroundApplication: ForegroundApplication?
     public init(date: Date, monotonic: Double, idleSeconds: Double, available: Bool = true,
-                foregroundApplication: ForegroundApplication? = nil) {
+                foregroundApplication: ForegroundApplication? = nil, inactivityConfirmed: Bool = true) {
         self.date = date; self.monotonic = monotonic; self.idleSeconds = idleSeconds
         self.available = available; self.foregroundApplication = foregroundApplication
+        self.inactivityConfirmed = inactivityConfirmed
     }
 }
 

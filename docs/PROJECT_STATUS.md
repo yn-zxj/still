@@ -55,7 +55,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。发布产物为 arm64 + x86_64 通用二进制，使用本地临时签名，尚无 Developer ID 签名或公证。此前 `v0.4.2` 虽然声明 macOS 13+，但实际只有 arm64；Intel 用户应改用 0.4.3 通用版。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 135 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新公开仓库的 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 137 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新公开仓库的 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -402,3 +402,11 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 从 MonitorSettings 中移除 mode，新版解码会忽略旧 mode=reading，并在下次保存时去掉该字段；引擎新产生的区间全部为 activity，不能再通过旧设置绕过空闲规则。保留 UsageSegment 的历史 reading 枚举及 CSV 标签，已有数据库记录不丢失、不重新计算。
 - 新增旧阅读设置迁移回归：连续无输入达到阈值后，不累计使用或疲劳，且不生成没有使用基础的自然休息记录。
 - 本地 135 项测试通过，双架构构建、最低系统/签名/模型检查通过。已正常更新并重开实际使用的 /Applications/息间.app：今日页只显示活动检测，无阅读开关；规则页无计时方式选择、空闲阈值可用。旧阅读设置自动忽略，实际进入“离开屏幕”状态；未重置数据库或课程库。
+
+### 2026-10-31 Eye Monitor 深入正确性研究
+
+- 新建 EYE_MONITOR_ACCURACY.md，记录目标摘要、REA 证据、ARM64 普通工具静态路径、公式说明、锁屏/睡眠优先级、统一恢复调用、真实图像对比路径与未知边界；原始第三方汇编与元数据只留仓库外。
+- 研究发现参考智能模式有屏幕变化辅助，Still 暂无；因此不能将移除阅读模式后称为与参考等价的智能检测。ScreenCaptureKit 可选采集的后续设计和误判矩阵另行明确，未擅自开启屏幕录制授权。
+- 修正本项目确定的另一边界：查询失败不等于确认休息；增加 inactivityConfirmed 并拒绝跨未知区间恢复。键盘/指针/滚轮分别查询时距，过滤无效查询；没有任何有效输入信号时暂停判断。只读取事件时距，不记录按键内容，不请求输入监听权限。
+- 本地 137 项测试通过（91 核心 + 46 资源/网络/模型），新增未知状态不可恢复/不可桥接和输入时距聚合边界。真人行为/息屏休眠/跨权限覆盖不由这些测试替代。
+- 最新通用包两切片最低 macOS 13.0，严格签名与模型校验通过；已正常替换并重开当前 /Applications/息间.app，今日概览启动与历史数据读取正常。原数据库、课程和用户在本轮修改的提醒样式保留。本轮没有屏幕采集或新的系统权限授权，也没有执行真实睡眠/锁屏测试。
