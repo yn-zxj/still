@@ -76,7 +76,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private(set) var recordingStartedAt = Date()
     let isUITest: Bool
     private let defaults: UserDefaults
-    private let monitor: SystemActivityMonitor
+    let monitor: SystemActivityMonitor
     private let repository: UsageRepository?
     private var timer: Timer?
     private var tickCount = 0
@@ -300,10 +300,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         } catch { storageError = "记录保存失败：\(error.localizedDescription)" }
     }
 
-    func shutdown() { posture.shutdown(); coursePlayer.shutdown(); timer?.invalidate(); save() }
+    func shutdown() { monitor.shutdown(); posture.shutdown(); coursePlayer.shutdown(); timer?.invalidate(); save() }
 
     private func currentSample() -> ActivitySample {
-        monitor.sample(includeForegroundApplication: settings.applicationInsightsEnabled)
+        monitor.sample(includeForegroundApplication: settings.applicationInsightsEnabled,
+                       allowAuxiliaryDetection: !isUITest && !engine.trackingPaused && engine.phase != .resting)
     }
 
     func clearApplicationHistory() {

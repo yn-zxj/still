@@ -208,6 +208,7 @@ struct PreferencesView: View {
                 }
                     .frame(width: 280)
             }.card(padding: 25)
+            ActivityDetectionSettingsView(monitor: model.monitor)
             VStack(spacing: 18) {
                 toggleRow("休息课程", "开启后显示课程库，并在休息提醒中推荐你添加的课程。", isOn: $model.settings.coursesEnabled, icon: "book-open")
                 if model.settings.coursesEnabled {

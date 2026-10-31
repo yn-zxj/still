@@ -4,7 +4,12 @@ import Foundation
 import StillCore
 
 @MainActor
-final class SystemActivityMonitor {
+final class SystemActivityMonitor: ObservableObject {
+    let screenActivity = ScreenActivityMonitor()
+    @Published private(set) var keyboardAuthorized = false
+    @Published private(set) var keyboardStatus = "使用基础检测"
+    private let keyboard = KeyboardActivityListener()
+    private var permissionCheckedAt: Double = -.infinity
     private let clock = ContinuousClock()
     private let origin = ContinuousClock().now
     private var observers: [NSObjectProtocol] = []
@@ -42,7 +47,7 @@ final class SystemActivityMonitor {
         }
     }
 
-    func sample(includeForegroundApplication: Bool = false) -> ActivitySample {
+    func sample(includeForegroundApplication: Bool = false, allowAuxiliaryDetection: Bool = true) -> ActivitySample {
         let elapsed = origin.duration(to: clock.now).components
         let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
         // Query keyboard, pointer and scrolling separately. Do not let unrelated
@@ -51,14 +56,48 @@ final class SystemActivityMonitor {
             .leftMouseDown, .leftMouseUp, .leftMouseDragged,
             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
             .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel]
-        let idle = InputActivityTiming.latest(types.map {
+        let systemIdle = InputActivityTiming.latest(types.map {
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0)
         })
         let state = suspendedReasons.isEmpty ? Self.sessionState() : .inactive
+        let available = state == .available
+        refreshKeyboardPermission(enableMonitoring: available && allowAuxiliaryDetection)
+        screenActivity.update(available: available && allowAuxiliaryDetection)
+        let now = ProcessInfo.processInfo.systemUptime
+        let keyboardIdle = keyboard.lastActivity.map { max(0, now - $0) }
+        let visualIdle = allowAuxiliaryDetection ? screenActivity.idleSeconds(at: now) : nil
+        let idle = InputActivityTiming.latest([systemIdle, keyboardIdle, visualIdle].compactMap { $0 })
         let foreground = includeForegroundApplication ? Self.foregroundApplication() : nil
         return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: idle ?? 0,
             available: state == .available && idle != nil, foregroundApplication: foreground,
             inactivityConfirmed: state == .inactive)
+    }
+
+    func requestKeyboardAuthorization() {
+        _ = CGRequestListenEventAccess()
+        permissionCheckedAt = -.infinity
+        refreshKeyboardPermission()
+        if !keyboardAuthorized { openKeyboardPrivacy() }
+    }
+    func openKeyboardPrivacy() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
+    }
+    private func refreshKeyboardPermission(enableMonitoring: Bool = true) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - permissionCheckedAt >= 5 {
+            permissionCheckedAt = now
+            keyboardAuthorized = CGPreflightListenEventAccess()
+        }
+        guard keyboardAuthorized, enableMonitoring else {
+            keyboard.stop()
+            keyboardStatus = keyboardAuthorized ? "已授权 · 休息或屏幕不可用时暂停" : "使用基础检测"
+            return
+        }
+        keyboardStatus = keyboard.start() ? "已运行 · 只记录键盘活动时间" : "辅助监听暂不可用 · 使用基础检测"
+    }
+    func shutdown() {
+        screenActivity.shutdown()
+        keyboard.stop()
     }
 
     private enum SessionState { case available, inactive, unknown }
@@ -84,5 +123,49 @@ final class SystemActivityMonitor {
             bundleID: application.bundleIdentifier ?? "",
             name: application.localizedName ?? application.bundleIdentifier ?? "未知应用"
         )
+    }
+}
+
+/// A passive session tap needs Input Monitoring, not permission to modify input.
+/// Only event occurrence time is retained; the event payload is never inspected.
+private final class KeyboardActivityListener {
+    private var tap: CFMachPort?
+    private var source: CFRunLoopSource?
+    private var retryAt: Double = 0
+    private let lock = NSLock()
+    private var activity: Double?
+    var lastActivity: Double? { lock.lock(); defer { lock.unlock() }; return activity }
+    func start() -> Bool {
+        if let tap { CGEvent.tapEnable(tap: tap, enable: true); return true }
+        guard ProcessInfo.processInfo.systemUptime >= retryAt else { return false }
+        let mask = [CGEventType.keyDown, .keyUp, .flagsChanged].reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+            options: .listenOnly, eventsOfInterest: mask, callback: { _, type, event, context in
+                if let context {
+                    let listener = Unmanaged<KeyboardActivityListener>.fromOpaque(context).takeUnretainedValue()
+                    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                        if let tap = listener.tap { CGEvent.tapEnable(tap: tap, enable: true) }
+                    } else if type == .keyDown || type == .keyUp || type == .flagsChanged {
+                        listener.lock.lock()
+                        listener.activity = ProcessInfo.processInfo.systemUptime
+                        listener.lock.unlock()
+                    }
+                }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: Unmanaged.passUnretained(self).toOpaque()),
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            retryAt = ProcessInfo.processInfo.systemUptime + 15
+            return false
+        }
+        self.tap = tap; self.source = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
+    func stop() {
+        if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        tap = nil; source = nil
+        lock.lock(); activity = nil; lock.unlock()
     }
 }
