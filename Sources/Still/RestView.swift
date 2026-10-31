@@ -724,9 +724,12 @@ private struct MenuUsageEndpoint: View {
     }
 
     private func endpoint(point: UsageActivityPoint, size: CGSize) -> some View {
+        let inset: CGFloat = 6
+        let activity = CGFloat(point.activity)
+        let plotHeight = max(1, size.height - inset * 2)
         let center = CGPoint(
             x: size.width * point.fraction,
-            y: 6 + max(1, size.height - 12) * (1 - CGFloat(point.activity))
+            y: inset + plotHeight * (1 - activity)
         )
         return ZStack(alignment: .topLeading) {
             Circle()
