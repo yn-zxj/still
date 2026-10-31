@@ -89,12 +89,9 @@ struct InsightsView: View {
                 .offset(y: state.appeared ? 0 : 10)
             agentWork(agentSummary)
             timeline(data)
-            HStack(alignment: .top, spacing: 16) {
+            BreakdownCardsLayout(spacing: 16, trailingWidth: 300) {
                 applicationBreakdown(data)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 categoryBreakdown(data)
-                    .frame(width: 300)
-                    .frame(maxHeight: .infinity, alignment: .top)
             }
             privacyNote
         }
@@ -501,6 +498,7 @@ struct InsightsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card(padding: 24)
     }
 
@@ -531,6 +529,7 @@ struct InsightsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card(padding: 24)
     }
 
@@ -545,6 +544,79 @@ struct InsightsView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 5)
+    }
+}
+
+private struct BreakdownCardsLayout: Layout {
+    let spacing: CGFloat
+    let trailingWidth: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let widths = columnWidths(totalWidth: proposal.width ?? idealWidth(subviews))
+        let sizes = measuredSizes(
+            subviews,
+            primaryWidth: widths.primary,
+            trailingWidth: widths.trailing
+        )
+        return CGSize(
+            width: widths.total,
+            height: max(sizes.primary.height, sizes.trailing.height)
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let widths = columnWidths(totalWidth: bounds.width)
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(
+                width: widths.primary,
+                height: bounds.height
+            )
+        )
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + widths.primary + spacing, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(
+                width: widths.trailing,
+                height: bounds.height
+            )
+        )
+    }
+
+    private func idealWidth(_ subviews: Subviews) -> CGFloat {
+        subviews[0].sizeThatFits(.unspecified).width + spacing + trailingWidth
+    }
+
+    private func columnWidths(totalWidth: CGFloat) -> (total: CGFloat, primary: CGFloat, trailing: CGFloat) {
+        let safeWidth = max(0, totalWidth)
+        let trailing = min(trailingWidth, safeWidth)
+        let primary = max(0, safeWidth - trailing - spacing)
+        return (safeWidth, primary, trailing)
+    }
+
+    private func measuredSizes(
+        _ subviews: Subviews,
+        primaryWidth: CGFloat,
+        trailingWidth: CGFloat
+    ) -> (primary: CGSize, trailing: CGSize) {
+        (
+            subviews[0].sizeThatFits(
+                ProposedViewSize(width: primaryWidth, height: nil)
+            ),
+            subviews[1].sizeThatFits(
+                ProposedViewSize(width: trailingWidth, height: nil)
+            )
+        )
     }
 }
 

@@ -58,8 +58,13 @@ struct DashboardView: View {
                 }
             }
             .background(Palette.background)
-            .clipShape(ContentPaneShape(radius: 28))
-            .overlay { ContentPaneLeadingEdge(radius: 28).stroke(Palette.line.opacity(0.9), lineWidth: 1).allowsHitTesting(false) }
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Palette.line.opacity(0.9), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .padding(.vertical, 10)
         }
         .foregroundStyle(Palette.ink).tint(Palette.accent)
         .frame(minWidth: 1020, minHeight: 720)
