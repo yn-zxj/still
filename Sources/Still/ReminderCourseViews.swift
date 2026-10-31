@@ -99,7 +99,7 @@ struct ReminderWorkoutView: View {
                         Button { player.toggle() } label: { LineLabel(player.playing ? "暂停" : player.finished ? "再练一次" : player.active ? "继续跟练" : "开始跟练", systemImage: player.playing ? "pause" : "play") }
                             .buttonStyle(SoftButtonStyle(prominent: true)).disabled(player.loading || player.error != nil)
                         if player.finished { Button("完成并关闭", action: close).buttonStyle(SoftButtonStyle()) }
-                        else if player.active { Button("结束跟练") { player.stop(); close() }.buttonStyle(.plain).font(.system(size: 14)).foregroundStyle(Palette.secondary) }
+                        else if player.active { Button("结束跟练", action: back).buttonStyle(.plain).font(.system(size: 14)).foregroundStyle(Palette.secondary) }
                         Spacer()
                         Text(player.finished ? "本次跟练已完成" : "\(clockText(player.position)) / \(clockText(player.duration))")
                             .font(.system(size: 14, design: .monospaced)).foregroundStyle(Palette.secondary)
