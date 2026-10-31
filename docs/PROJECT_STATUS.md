@@ -18,7 +18,7 @@ GitHub 公开仓库：https://github.com/yn-zxj/still 。主分支 `main`，已�
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.7.1 / build 31（待发布）
+## 当前实现：0.7.1 / build 31（正式发布）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -514,8 +514,11 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 普通 `/Applications/息间.app` 已正常退出后更新为 0.7.0 (30)，真实数据库、设置和课程库保留。实机截图确认左上角采集提示消失；B 站音频播放时设置页显示“检测到媒体播放”。
 - ad-hoc 签名变化后，系统可能要求重新授权键盘辅助；基础键鼠检测和媒体播放检测不需要重新授权。build 30 作为发布前验证构建，后续正式版为 0.7.1。
 
-### 0.7.1 正式发布准备
+### 0.7.1 正式发布
 
-- 版本提升为 0.7.1 (31)，发布说明归档在 `docs/releases/0.7.1.md`。
-- 修复内容包含移除持续屏幕采集、改用 CoreAudio 媒体播放状态，以及设置页“媒体播放”状态展示。
-- 正式发布前仍需完成本地测试、通用构建、提交推送、标签流水线、Release 附件下载复核与 Latest 状态确认。
+- 提交 `ca32fb99404863561314f5f407dbf307bce75732` 已创建并推送标签 `v0.7.1`。标签流水线 `41170132216` 完成 145 项测试、通用构建、macOS 14 Apple Silicon 原生启动、Intel 原生启动和 GitHub Release 发布；同提交的 `main` 流水线 `41170126622` 也全部通过且按预期跳过发布。
+- 正式 Release：[v0.7.1](https://github.com/yn-zxj/still/releases/tag/v0.7.1)，标题“息间 0.7.1”，非草稿、非预发布，并已成为 Latest。附件 `Still-0.7.1-31-x86_64-arm64-macos.zip`、侧车 SHA-256 和 `artifact-manifest.json` 均为 uploaded。
+- 已通过公开 Release 链接匿名重新下载三项附件。ZIP 大小 `11,692,494` 字节，SHA-256 `979f2f420a9dba9cb041ec5d87c00eaa35e8827ed08e0382b58e8c56764cb441`，与侧车和 GitHub 摘要一致；匿名下载、帮助哈希与压缩完整性检查通过。
+- 下载审计确认 Bundle 为 `local.still.app`、0.7.1 (31)、`x86_64 arm64`、两个切片最低 macOS 13.0；严格代码签名、内置 Bundle 与 OpenPose 模型校验通过。二进制不再链接 ScreenCaptureKit，仅使用 CoreAudio 判断媒体播放状态。
+- 普通 `/Applications/息间.app` 已正常退出后替换为审计过的正式包，真实数据库、设置和课程库保留。实机确认版本为 0.7.1 (31)，主窗口与关闭控件正常，左上角屏幕采集提示不再出现。
+- 产物仍为 ad-hoc 签名，未使用 Developer ID，也未通过 Apple 公证；升级后系统可能要求重新授权键盘辅助。静音视频、无声动画及无人观看的持续音频仍有计时误差。
