@@ -48,7 +48,7 @@ struct ReminderWorkoutView: View {
                 Spacer()
                 Text(preview ? "课程预览 · 不计入休息" : "休息跟练").font(.system(size: 13)).foregroundStyle(Palette.secondary)
                 Button(action: close) { LineIcon(systemName: "x", size: 16).frame(width: 30, height: 30) }
-                    .buttonStyle(.plain).accessibilityLabel("收起跟练并暂停")
+                    .buttonStyle(.plain).accessibilityLabel(preview ? "关闭预览" : "关闭跟练并稍后提醒")
             }
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {

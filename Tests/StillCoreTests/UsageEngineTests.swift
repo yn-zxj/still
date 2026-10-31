@@ -183,6 +183,25 @@ struct UsageEngineTests {
         #expect((engine.roundSeconds) == (30))
     }
 
+    @Test func closingActiveRestSnoozesAndRemindsAgain() {
+        var settings = MonitorSettings()
+        settings.workMinutes = 1
+        settings.restMinutes = 5
+        settings.snoozeMinutes = 5
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 61)
+        engine.startRest(sample(61), duration: 300)
+        engine.tick(sample(62))
+        engine.snooze(sample(62))
+        #expect(engine.phase == .snoozed)
+        #expect(engine.breaks.last?.outcome == .interrupted)
+        advance(&engine, from: 63, to: 361)
+        #expect(engine.phase == .snoozed)
+        engine.tick(sample(362))
+        #expect(engine.phase == .due)
+        #expect(engine.reminderSerial == 2)
+    }
+
     @Test func testTrackingPausePreservesRoundAndExcludesPausedInterval() {
         var engine = UsageEngine()
         advance(&engine, from: 0, to: 30)

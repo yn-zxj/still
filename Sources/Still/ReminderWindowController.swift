@@ -11,6 +11,15 @@ private final class ReminderContentState: ObservableObject {
     init(model: AppModel) { previewPlayer = CoursePlayer(cache: model.library.videoCache, diagnostics: model.library.diagnostics) }
 }
 
+enum ReminderManualClosePolicy {
+    static func shouldSnooze(_ presentation: RestPresentation?) -> Bool {
+        switch presentation {
+        case .due?, .resting?: true
+        default: false
+        }
+    }
+}
+
 @MainActor
 final class ReminderWindowController {
     private let model: AppModel
@@ -107,10 +116,11 @@ final class ReminderWindowController {
         panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false; panel.isFloatingPanel = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.level = Self.windowLevel
-        panel.onEscape = { [weak self] in self?.close() }
+        panel.onEscape = { [weak self] in self?.dismissManually() }
         panel.contentView = NSHostingView(rootView: ReminderPanelContent(model: model, content: content, style: currentStyle,
             choose: { [weak self, weak panel] course in if let panel { self?.open(course, in: panel) } },
-            back: { [weak self, weak panel] in if let panel { self?.back(in: panel) } }, close: { [weak self] in self?.close() }))
+            back: { [weak self, weak panel] in if let panel { self?.back(in: panel) } },
+            close: { [weak self] in self?.dismissManually() }))
         if simple {
             panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         } else if !full {
@@ -167,6 +177,10 @@ final class ReminderWindowController {
         updateDisplays()
     }
     func dismissIfDue() { if current == .due && content.course == nil { close() } }
+    private func dismissManually() {
+        if ReminderManualClosePolicy.shouldSnooze(current) { model.snooze() }
+        close()
+    }
     func applyAppearance(_ appearance: NSAppearance?) {
         self.appearance = appearance
         for panel in panels { panel.appearance = appearance }

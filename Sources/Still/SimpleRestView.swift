@@ -22,7 +22,9 @@ struct SimpleRestView: View {
                     .fixedSize().accessibilityLabel("剩余休息时间")
                 Button(action: close) {
                     LineIcon(systemName: "x", size: 16).frame(width: 26, height: 28).contentShape(Rectangle())
-                }.buttonStyle(.plain).help("收起提醒").accessibilityLabel("收起休息提醒")
+                }.buttonStyle(.plain)
+                    .help(previewDeadline == nil ? "关闭并在稍后提醒" : "关闭预览")
+                    .accessibilityLabel(previewDeadline == nil ? "关闭并稍后提醒" : "关闭预览")
             }
             .padding(.horizontal, 18).frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(Palette.ink)

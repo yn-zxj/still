@@ -43,7 +43,7 @@ struct RestView: View {
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
                 Spacer()
                 Button(action: close) { LineIcon(systemName: "x", size: 13).foregroundStyle(Palette.secondary).frame(width: 28, height: 28).background(Palette.surface.opacity(0.78), in: Circle()) }
-                    .buttonStyle(.plain).accessibilityLabel(presentation == .resting ? "收起休息窗口" : "关闭休息窗口")
+                    .buttonStyle(.plain).accessibilityLabel(presentation == .resting || presentation == .due ? "关闭并稍后提醒" : "关闭窗口")
             }.padding(.horizontal, 25).padding(.top, 20)
             FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 130, height: 130).padding(.top, 12)
             Text(presentation == .completed ? "休息结束" : model.reminderText)
@@ -92,7 +92,7 @@ struct FullScreenRestView: View {
                         Text(presentation == .preview ? "全屏提醒 · 预览" : "息间").font(.system(size: 15, weight: .medium))
                     }
                     Spacer()
-                    Button { close() } label: { LineLabel("退出全屏", systemImage: "x") }.buttonStyle(SoftButtonStyle())
+                    Button { close() } label: { LineLabel(presentation == .resting || presentation == .due ? "稍后提醒" : "关闭窗口", systemImage: "x") }.buttonStyle(SoftButtonStyle())
                 }.padding(30)
                 ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
@@ -119,7 +119,7 @@ struct FullScreenRestView: View {
                 Spacer(minLength: 20)
                 }.frame(maxWidth: .infinity).padding(.bottom, 12)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                Text("Esc 退出全屏").font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.bottom, 25)
+                Text(presentation == .resting || presentation == .due ? "Esc 稍后提醒" : "Esc 关闭窗口").font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.bottom, 25)
             }
         }
         .foregroundStyle(Palette.ink).tint(Palette.accent).ignoresSafeArea()

@@ -50,4 +50,11 @@ struct ReminderDisplayTests {
         #expect(workout.height == 495)
         #expect(screen.visibleFrame.contains(workout))
     }
+    @Test func manualReminderCloseSnoozesOnlyUnfinishedStates() {
+        #expect(ReminderManualClosePolicy.shouldSnooze(.due))
+        #expect(ReminderManualClosePolicy.shouldSnooze(.resting))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(.preview))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(.completed))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(nil))
+    }
 }
