@@ -91,9 +91,10 @@ struct InsightsView: View {
             timeline(data)
             HStack(alignment: .top, spacing: 16) {
                 applicationBreakdown(data)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 categoryBreakdown(data)
                     .frame(width: 300)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
             privacyNote
         }
@@ -350,6 +351,7 @@ struct InsightsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card(padding: 24)
     }
 
@@ -455,6 +457,7 @@ struct InsightsView: View {
                     .frame(height: 220)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card(padding: 24)
     }
 
