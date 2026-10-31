@@ -77,6 +77,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     let isUITest: Bool
     private let defaults: UserDefaults
     let monitor: SystemActivityMonitor
+    let activityDiagnostics: ActivityDiagnostics
     private let repository: UsageRepository?
     private var timer: Timer?
     private var tickCount = 0
@@ -95,6 +96,13 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     override init() {
         isUITest = ProcessInfo.processInfo.arguments.contains("--ui-test") || (Bundle.main.bundleIdentifier == "local.still.preview" || Bundle.main.bundleIdentifier?.hasPrefix("local.still.preview.") == true)
+        activityDiagnostics = ActivityDiagnostics(
+            root: isUITest
+                ? FileManager.default.temporaryDirectory
+                    .appendingPathComponent("StillActivityDiagnostics-\(getpid())", isDirectory: true)
+                : FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("Logs/Still", isDirectory: true)
+        )
         let arguments = ProcessInfo.processInfo.arguments
         let testLibrary = isUITest ? arguments.firstIndex(of: "--ui-test-library").flatMap { index in
             index + 1 < arguments.count ? URL(fileURLWithPath: arguments[index + 1]) : nil
@@ -217,6 +225,14 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         let sample = currentSample()
         if !sample.available { coursePlayer.pause() }
         engine.tick(sample)
+        activityDiagnostics.record(
+            sample: sample,
+            phase: engine.phase,
+            trackingPaused: engine.trackingPaused,
+            settings: settings,
+            signals: monitor.signalSnapshot,
+            fatiguePercent: engine.fatiguePercent
+        )
         posture.setAvailable(sample.available && engine.phase != .resting)
         if engine.reminderSerial != previousReminder {
             previousReminder = engine.reminderSerial
@@ -301,6 +317,18 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     }
 
     func shutdown() { monitor.shutdown(); posture.shutdown(); coursePlayer.shutdown(); timer?.invalidate(); save() }
+
+    func revealActivityLog() {
+        if FileManager.default.fileExists(atPath: activityDiagnostics.fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([activityDiagnostics.fileURL])
+        } else {
+            try? FileManager.default.createDirectory(
+                at: activityDiagnostics.root,
+                withIntermediateDirectories: true
+            )
+            NSWorkspace.shared.open(activityDiagnostics.root)
+        }
+    }
 
     private func currentSample() -> ActivitySample {
         monitor.sample(includeForegroundApplication: settings.applicationInsightsEnabled,

@@ -6,8 +6,10 @@ import StillCore
 @MainActor
 final class SystemActivityMonitor: ObservableObject {
     let playbackActivity = PlaybackActivityMonitor()
+    let foregroundProcessActivity = ForegroundProcessActivityMonitor()
     @Published private(set) var keyboardAuthorized = false
     @Published private(set) var keyboardStatus = "使用基础检测"
+    @Published private(set) var signalSnapshot = ActivitySignalSnapshot()
     private let keyboard = KeyboardActivityListener()
     private var permissionCheckedAt: Double = -.infinity
     private let clock = ContinuousClock()
@@ -61,13 +63,31 @@ final class SystemActivityMonitor: ObservableObject {
         })
         let state = suspendedReasons.isEmpty ? Self.sessionState() : .inactive
         let available = state == .available
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let frontmostPID = frontmost?.processIdentifier == getpid() ? nil : frontmost?.processIdentifier
         refreshKeyboardPermission(enableMonitoring: available && allowAuxiliaryDetection)
         playbackActivity.update(available: available && allowAuxiliaryDetection)
         let now = ProcessInfo.processInfo.systemUptime
+        foregroundProcessActivity.update(
+            processID: frontmostPID,
+            available: available && allowAuxiliaryDetection,
+            at: now
+        )
         let keyboardIdle = keyboard.lastActivity.map { max(0, now - $0) }
         let playbackIdle = allowAuxiliaryDetection ? playbackActivity.idleSeconds(at: now) : nil
-        let idle = InputActivityTiming.latest([systemIdle, keyboardIdle, playbackIdle].compactMap { $0 })
-        let foreground = includeForegroundApplication ? Self.foregroundApplication() : nil
+        let processIdle = allowAuxiliaryDetection ? foregroundProcessActivity.idleSeconds(at: now) : nil
+        let idle = InputActivityTiming.latest([systemIdle, keyboardIdle, playbackIdle, processIdle].compactMap { $0 })
+        let foreground = includeForegroundApplication ? frontmost.flatMap(Self.foregroundApplication) : nil
+        signalSnapshot = ActivitySignalSnapshot(
+            date: Date(),
+            available: available,
+            inactivityConfirmed: state == .inactive,
+            systemIdleSeconds: systemIdle,
+            keyboardIdleSeconds: keyboardIdle,
+            playbackIdleSeconds: playbackIdle,
+            foregroundProcessIdleSeconds: processIdle,
+            foregroundBundleID: frontmost?.bundleIdentifier
+        )
         return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: idle ?? 0,
             available: state == .available && idle != nil, foregroundApplication: foreground,
             inactivityConfirmed: state == .inactive)
@@ -97,6 +117,7 @@ final class SystemActivityMonitor: ObservableObject {
     }
     func shutdown() {
         playbackActivity.shutdown()
+        foregroundProcessActivity.shutdown()
         keyboard.stop()
     }
 
@@ -117,8 +138,7 @@ final class SystemActivityMonitor: ObservableObject {
         return online.allSatisfy { CGDisplayIsAsleep($0) != 0 } ? .inactive : .unknown
     }
 
-    private static func foregroundApplication() -> ForegroundApplication? {
-        guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+    private static func foregroundApplication(_ application: NSRunningApplication) -> ForegroundApplication? {
         return ForegroundApplication(
             bundleID: application.bundleIdentifier ?? "",
             name: application.localizedName ?? application.bundleIdentifier ?? "未知应用"
