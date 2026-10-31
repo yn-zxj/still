@@ -137,9 +137,11 @@ public struct EngineCheckpoint: Codable {
     public var snoozeUntil: Date?
     public var trackingPaused: Bool
     public var fatigueWorkSeconds: Double?
-    public init(roundID: UUID, snoozeUntil: Date?, trackingPaused: Bool, fatigueWorkSeconds: Double? = nil) {
+    public var unavailableSince: Date?
+    public init(roundID: UUID, snoozeUntil: Date?, trackingPaused: Bool, fatigueWorkSeconds: Double? = nil, unavailableSince: Date? = nil) {
         self.roundID = roundID; self.snoozeUntil = snoozeUntil; self.trackingPaused = trackingPaused
         self.fatigueWorkSeconds = fatigueWorkSeconds
+        self.unavailableSince = unavailableSince
     }
 }
 

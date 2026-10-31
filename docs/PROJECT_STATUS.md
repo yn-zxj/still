@@ -1,6 +1,6 @@
 # Still / 息间项目档案
 
-最后更新：2026-10-30。此文件是项目持续维护入口，每次重要改动同步更新。
+最后更新：2026-10-31。此文件是项目持续维护入口，每次重要改动同步更新。
 
 GitHub 公开仓库：https://github.com/yn-zxj/still 。主分支 `main`，已于 2026-10-30 按用户明确指令从私有仓库转为公开。
 
@@ -18,7 +18,7 @@ GitHub 公开仓库：https://github.com/yn-zxj/still 。主分支 `main`，已�
 - 界面验收使用用户当前运行的普通应用；不要每次另建预览应用。只有需要隔离破坏性数据时才使用独立体验实例。
 - 菜单栏只显示状态图标与疲劳百分比，不显示倒计时；设置页不再提供两个菜单栏文本开关。
 
-## 当前实现：0.6.0 / build 15（验证中）
+## 当前实现：0.6.1 / build 16（本地修复版；正式 Release 仍为 0.6.0）
 
 技术：SwiftUI + AppKit，StillCore 纯 Swift 状态机，Core Data。本地优先，没有账号服务或第三方运行时依赖。
 
@@ -55,7 +55,7 @@ docs/               本项目档案
 
 构建目标 macOS 13+，当前本机测试框架需要 macOS 14+。本机为 Apple Silicon / Swift 6.4；构建使用已安装 Command Line Tools。发布产物为 arm64 + x86_64 通用二进制，使用本地临时签名，尚无 Developer ID 签名或公证。此前 `v0.4.2` 虽然声明 macOS 13+，但实际只有 arm64；Intel 用户应改用 0.4.3 通用版。
 
-GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 133 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新公开仓库的 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
+GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`：在 `main` 推送、`v*` 标签、Pull Request 和手动触发时运行 135 项测试、双架构 Release 构建、切片级最低系统版本/Bundle/签名校验与 ZIP 打包。通用包随后分别在 macOS 14 Apple Silicon 和 `macos-15-intel` 原生 runner 上加载模型并执行无界面的 Bundle 启动检查；只有二者均通过，`v*` 标签才会创建或更新公开仓库的 GitHub Release。流水线产物为 ad-hoc 签名；Developer ID 签名和 Apple 公证仍未配置。
 
 ## 验证记录
 
@@ -385,3 +385,13 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 已重新匿名下载并审计正式附件：ZIP 完整；SHA-256 `490ab18d1613945cd127c97576a4370f1cec7f7ab2e07a42f8ae2ca99cab2877` 与侧车一致；Bundle `local.still.app` 0.6.0 (15)，架构 `x86_64 arm64`，两个切片最低 macOS 13.0，严格签名检查通过。
 - 发布附件中的 Lightweight OpenPose 模型摘要 `37ef5e3e283ad0d18c6bb851039ac22b83d968ad696c0b497b0264f27cabaa01` 与来源清单一致；OpenPose、Lucide 和 media-parser 许可证均存在。包内未发现课程视频、使用数据库、`AgentActivity.json` 或截图。
 - 当前仍是 ad-hoc 签名，未使用 Developer ID 或 Apple 公证。CI 出现 `actions/checkout@v4`、`actions/upload-artifact@v4`、`actions/download-artifact@v4` 的 Node.js 20 将淘汰提示，但不影响本次运行；下一轮流水线维护应升级到兼容 Node.js 24 的 action 主版本并重新审计。
+
+### 2026-10-31 息屏后疲劳未恢复修复（本地验证中）
+
+- 用户报告隔夜打开后疲劳 98%。只读核对系统电源日志与本机使用区间：最后使用与息屏时间吻合，夜间无使用段，亮屏后才继续记录；当前设置为持续阅读。因此此样例的直接原因是“不可用状态只停止累计，没有恢复疲劳”，而非整晚误计。
+- 引擎对明确 available=false 的系统/屏幕/会话不可用时间按 workSeconds/restSeconds 降低疲劳，归零后开始新一轮；活动和阅读模式均适用。恢复不生成完成休息记录；普通暂停统计、未观测间隔仍不自动恢复。运行中检查墙钟与连续时钟的一致性，时钟跳变不用于恢复。
+- 检查点新增可选 unavailableSince，保存最后已处理的不可用时间，重启后只恢复剩余时间；旧设置/检查点兼容。进入手动休息时清除自动恢复锚点，避免重复恢复。
+- REA 对本机 Eye Monitor 13.1.19 (139) 的 Mach-O 静态检查：SHA-256 fa70a7ada602570d474b95356ff480ef7e9bf4699e4717b80a119746b4fadb0c；证据 ev_bbfd914ab4d660a1b6dc5cff117a3b8124a9aac516195513e7236db5b0e78a56 显示 NSWorkspaceWillSleepNotification、NSEvent、CGDisplayCreateImage、屏幕授权等导入。本机 otool 元数据另含 onSleepNoteWithNote:/onWakeNoteWithNote:、sleepState/sleepTime。仅证明接口/状态存在，不证明回调公式；Ghidra 未配置、Hopper 未安装，未恢复其完整疲劳算法。REA 完整证据保存在仓库外 work/eye-monitor-20261031-evidence.json，未复制第三方代码。
+- 不回写或删除旧使用记录，不将午夜作为自动清零依据；旧版未保存不可用时间，无法单靠旧检查点追溯纠正先前疲劳。修复后新发生的息屏/休眠可恢复。
+
+- 最终本地 135 项通过（89 核心 + 46 资源/网络/模型）；universal 构建、两切片最低 macOS 13、严格签名及模型摘要检查通过。已正常退出并更新当前实际运行的 /Applications/息间.app，与 dist/息间.app 同为 0.6.1 (16)，设置页已确认版本，原设置、课程、使用记录保留。更新前恰好完成了一次普通倒计时休息，当前低疲劳不能当作真实息屏恢复验收证据；本次未主动锁屏、息屏或休眠用户电脑，真实隔夜回归仍待观察。未创建 v0.6.1 标签或 Release。

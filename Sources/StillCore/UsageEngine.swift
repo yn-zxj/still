@@ -25,6 +25,7 @@ public struct UsageEngine {
     private var observedSince: Double?
     private var recoveredIdleSeconds: Double = 0
     private var restStartFatigue: Double = 0
+    private var unavailableSince: Date?
     public private(set) var guidedRest = false
 
     public init(settings: MonitorSettings = MonitorSettings(), segments: [UsageSegment] = [],
@@ -36,6 +37,7 @@ public struct UsageEngine {
         self.roundID = checkpoint?.roundID ?? UUID(); self.now = now
         self.trackingPaused = checkpoint?.trackingPaused ?? false
         self.snoozeUntil = checkpoint?.snoozeUntil
+        self.unavailableSince = checkpoint?.unavailableSince
         fatigueWorkSeconds = max(0, checkpoint?.fatigueWorkSeconds ?? self.segments.filter { $0.roundID == self.roundID }.reduce(0) { $0 + $1.seconds })
         // An unobserved process gap never counts as completed rest or computer usage.
         for index in self.breaks.indices where self.breaks[index].outcome == .inProgress {
@@ -48,7 +50,7 @@ public struct UsageEngine {
     public var progress: Double { min(1, max(0, fatigueWorkSeconds / settings.workSeconds)) }
     public var fatiguePercent: Int { min(100, max(0, Int((progress * 100 + 0.0000001).rounded(.down)))) }
     public var workRemaining: Double { max(0, settings.workSeconds - fatigueWorkSeconds) }
-    public var checkpoint: EngineCheckpoint { .init(roundID: roundID, snoozeUntil: snoozeUntil, trackingPaused: trackingPaused, fatigueWorkSeconds: fatigueWorkSeconds) }
+    public var checkpoint: EngineCheckpoint { .init(roundID: roundID, snoozeUntil: snoozeUntil, trackingPaused: trackingPaused, fatigueWorkSeconds: fatigueWorkSeconds, unavailableSince: unavailableSince) }
 
     /// Recover overlapping observations from development copies without counting a second twice.
     /// Retain obsolete IDs as zero-duration records so the repository can update them in place.
@@ -119,6 +121,20 @@ public struct UsageEngine {
             if restRemaining == 0 { finishRest(at: sample.date) }
             return
         }
+        // Explicit screen/session unavailability is rest evidence in both modes.
+        // An arbitrary timer/process gap is still unknown and earns no recovery.
+        if let began = unavailableSince {
+            let elapsed = sample.date.timeIntervalSince(began)
+            let monotonicElapsed = previous.map { sample.monotonic - $0.monotonic }
+            let clockConsistent = monotonicElapsed.map { $0 >= 0 && abs($0 - elapsed) < 5 } ?? true
+            if elapsed.isFinite, elapsed > 0, clockConsistent, fatigueWorkSeconds > 0 {
+                fatigueWorkSeconds = max(0, min(settings.workSeconds, fatigueWorkSeconds) - elapsed * settings.workSeconds / settings.restSeconds)
+                if fatigueWorkSeconds == 0 { resetRound() }
+            }
+            unavailableSince = sample.available ? nil : sample.date
+        } else if !sample.available {
+            unavailableSince = sample.date
+        }
         guard sample.available, !trackingPaused else {
             activeSegmentID = nil
             activeApplicationSegmentID = nil
@@ -182,6 +198,7 @@ public struct UsageEngine {
         guard !wasResting, phase != .resting else { return }
         activeSegmentID = nil; activeApplicationSegmentID = nil
         let target = max(1, duration ?? settings.restSeconds)
+        unavailableSince = nil
         let record = BreakRecord(startedAt: sample.date, targetSeconds: target, outcome: .inProgress, source: .manual)
         breaks.append(record); restingID = record.id; restStartedMonotonic = sample.monotonic
         restStartFatigue = min(settings.workSeconds, fatigueWorkSeconds)
@@ -304,6 +321,7 @@ public struct UsageEngine {
 
     private mutating func resetRound() {
         roundID = UUID(); activeSegmentID = nil; activeApplicationSegmentID = nil
+        unavailableSince = nil
         fatigueWorkSeconds = 0
         snoozeDeadline = nil; snoozeUntil = nil; lastReminderMonotonic = nil
     }

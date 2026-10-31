@@ -18,14 +18,13 @@ struct UsageEngineTests {
         var settings = MonitorSettings(); settings.mode = .reading
         var engine = UsageEngine(settings: settings)
         advance(&engine, from: 0, to: 60)
-        let fatigue = engine.fatigueWorkSeconds
         for second in 61...180 { engine.tick(sample(Double(second), idle: 500, available: false)) }
-        #expect(engine.roundSeconds == 60)
-        #expect(engine.fatigueWorkSeconds == fatigue)
+        #expect(engine.segments.reduce(0) { $0 + $1.seconds } == 60)
+        #expect(engine.fatigueWorkSeconds == 0)
         engine.tick(sample(3600, available: true))
-        #expect(engine.roundSeconds == 60)
+        #expect(engine.roundSeconds == 0)
         engine.tick(sample(3601, available: true))
-        #expect(engine.roundSeconds == 61)
+        #expect(engine.roundSeconds == 1)
     }
 
     @Test func averageOnlyIncludesCalendarDaysSinceRecordingBegan() throws {
@@ -114,9 +113,9 @@ struct UsageEngineTests {
         engine.tick(sample(3600, available: false))
         engine.tick(sample(3601))
         engine.tick(sample(3602))
-        #expect(abs((engine.roundSeconds) - (11)) <= 0.01)
+        #expect(engine.roundSeconds == 1)
         engine.tick(sample(7200))
-        #expect(abs((engine.roundSeconds) - (11)) <= 0.01)
+        #expect(engine.roundSeconds == 1)
         #expect(engine.breaks.isEmpty)
     }
 
@@ -432,4 +431,37 @@ struct UsageEngineTests {
         #expect(engine.fatiguePercent == 50)
         #expect(engine.breaks.isEmpty)
     }
+    @Test func screenOffRecoveryPersistsAcrossRelaunchWithoutInventingUsageOrBreaks() throws {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1; settings.mode = .reading
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        engine.tick(sample(61, available: false))
+        engine.tick(sample(91, available: false))
+        #expect(engine.fatiguePercent == 50)
+        let checkpoint = try JSONDecoder().decode(EngineCheckpoint.self, from: JSONEncoder().encode(engine.checkpoint))
+        var restored = UsageEngine(settings: settings, segments: engine.segments, checkpoint: checkpoint)
+        restored.tick(ActivitySample(date: origin.addingTimeInterval(36000), monotonic: 0, idleSeconds: 0))
+        #expect(restored.fatiguePercent == 0)
+        #expect(restored.roundSeconds == 0)
+        #expect(restored.segments.reduce(0) { $0 + $1.seconds } == 60)
+        #expect(restored.breaks.isEmpty)
+        restored.tick(ActivitySample(date: origin.addingTimeInterval(36001), monotonic: 1, idleSeconds: 0))
+        #expect(restored.roundSeconds == 1)
+    }
+
+    @Test func suspensionClockChangesAndPausedTrackingDoNotInventRecovery() {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 30)
+        engine.setTrackingPaused(true, sample: sample(30))
+        engine.tick(sample(40))
+        #expect(engine.fatiguePercent == 50)
+        engine.tick(sample(41, available: false))
+        engine.tick(sample(42, available: false, wallOffset: 3600))
+        #expect(engine.fatiguePercent == 50)
+        engine.tick(sample(43, wallOffset: 3600))
+        #expect(engine.fatiguePercent == 48)
+        #expect(engine.breaks.isEmpty)
+    }
+
 }
