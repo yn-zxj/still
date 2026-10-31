@@ -11,7 +11,7 @@ enum Page: String, CaseIterable {
         case .posture: return "person-standing"
         case .courses: return "book-open"
         case .today: return "sun.max"
-        case .insights: return "chart-pie"
+        case .insights: return "chart-line"
         case .history: return "chart.bar.xaxis"
         case .rules: return "slider.horizontal.3"
         case .settings: return "gearshape"

@@ -460,7 +460,7 @@ struct InsightsView: View {
 
     private var emptyTimeline: some View {
         HStack(spacing: 14) {
-            LineIcon(systemName: "chart-pie", size: 28)
+            LineIcon(systemName: "chart-line", size: 28)
                 .foregroundStyle(Palette.accent.opacity(0.7))
             VStack(alignment: .leading, spacing: 4) {
                 Text("暂时没有应用时间流").font(.system(size: 14, weight: .medium))

@@ -248,7 +248,7 @@ private struct MenuInsightsCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 11) {
                 HStack(spacing: 9) {
-                    LineIcon(systemName: "chart-pie", size: 17)
+                    LineIcon(systemName: "chart-line", size: 17)
                         .foregroundStyle(Palette.accent)
                     Text("时间去向")
                         .font(.system(size: 14, weight: .semibold))
@@ -558,124 +558,17 @@ private struct MenuUsageChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("今日节奏")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    Text("每 5 分钟活跃度 · 未来时段留白")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Palette.secondary)
-                }
-                Spacer()
-                HStack(spacing: 5) {
-                    Circle().fill(Palette.green).frame(width: 5, height: 5)
-                    Text("现在")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Palette.secondary)
-                }
-            }
-
+            MenuUsageChartHeader()
             HStack(alignment: .top, spacing: 8) {
-                GeometryReader { proxy in
-                    ForEach(MenuUsageChartAxis.activityPercents, id: \.self) { value in
-                        Text("\(value)%")
-                            .font(.system(size: 9, weight: .regular, design: .monospaced))
-                            .foregroundStyle(Palette.secondary.opacity(0.64))
-                            .frame(width: 30, alignment: .trailing)
-                            .position(
-                                x: 15,
-                                y: max(6, min(proxy.size.height - 6,
-                                    proxy.size.height * (1 - CGFloat(value) / 100)))
-                            )
-                    }
-                }
-                .frame(width: 30, height: 132)
-
-                GeometryReader { geo in
-                    let size = geo.size
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Palette.surface.opacity(0.62), Palette.lavender.opacity(0.22)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                        ForEach(MenuUsageChartAxis.activityPercents, id: \.self) { value in
-                            Rectangle()
-                                .fill(Palette.line.opacity(value == 0 ? 0.7 : 0.42))
-                                .frame(height: value == 0 ? 0.75 : 0.5)
-                                .offset(y: size.height * (1 - CGFloat(value) / 100))
-                        }
-                        ForEach(MenuUsageChartAxis.hours, id: \.self) { hour in
-                            Rectangle()
-                                .fill(Palette.line.opacity(hour % 6 == 0 ? 0.56 : 0.3))
-                                .frame(width: hour % 6 == 0 ? 0.7 : 0.45, height: size.height)
-                                .offset(x: size.width * CGFloat(hour) / 24)
-                        }
-                        MenuUsageArea(points: points)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Palette.accent.opacity(0.11), Palette.accent.opacity(0.005)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .opacity(revealState.revealed ? 1 : 0)
-                        MenuUsageLine(points: points)
-                            .trim(from: 0, to: revealState.revealed ? 1 : 0)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [Palette.green.opacity(0.9), Palette.accent],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                ),
-                                style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
-                            )
-                        if let latest = points.last, revealState.revealed {
-                            let dot = CGPoint(
-                                x: size.width * latest.fraction,
-                                y: 6 + max(1, size.height - 12) * (1 - CGFloat(latest.activity))
-                            )
-                            Circle()
-                                .fill(Palette.accent.opacity(0.14))
-                                .frame(width: 12, height: 12)
-                                .offset(
-                                    x: dot.x - 6,
-                                    y: dot.y - 6
-                                )
-                            Circle()
-                                .fill(Palette.accent)
-                                .overlay(Circle().stroke(Palette.surface, lineWidth: 1))
-                                .frame(width: 5, height: 5)
-                                .offset(
-                                    x: dot.x - 2.5,
-                                    y: dot.y - 2.5
-                                )
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                }
+                MenuUsageYAxis()
+                    .frame(width: 30, height: 132)
+                MenuUsagePlot(
+                    points: points,
+                    revealed: revealState.revealed
+                )
                 .frame(height: 132)
             }
-
-            HStack(spacing: 8) {
-                Color.clear.frame(width: 30, height: 10)
-                GeometryReader { proxy in
-                    ForEach(MenuUsageChartAxis.hours, id: \.self) { hour in
-                        Text("\(hour)")
-                            .font(.system(size: 8, weight: .regular, design: .monospaced))
-                            .foregroundStyle(Palette.secondary.opacity(0.64))
-                            .frame(width: 18)
-                            .position(
-                                x: min(proxy.size.width - 9, max(9, proxy.size.width * CGFloat(hour) / 24)),
-                                y: 5
-                            )
-                    }
-                }
-            }
-            .frame(height: 11)
+            MenuUsageXAxis()
         }
         .onAppear {
             revealState.revealed = false
@@ -686,6 +579,205 @@ private struct MenuUsageChart: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.75), value: revealState.revealed)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("今日每五分钟活跃度图")
+    }
+}
+
+private struct MenuUsageChartHeader: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("今日节奏")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                Text("每 5 分钟活跃度 · 未来时段留白")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Palette.secondary)
+            }
+            Spacer()
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Palette.green)
+                    .frame(width: 5, height: 5)
+                Text("现在")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Palette.secondary)
+            }
+        }
+    }
+}
+
+private struct MenuUsageYAxis: View {
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(MenuUsageChartAxis.activityPercents, id: \.self) { value in
+                Text("\(value)%")
+                    .font(.system(size: 9, weight: .regular, design: .monospaced))
+                    .foregroundStyle(Palette.secondary.opacity(0.64))
+                    .frame(width: 30, alignment: .trailing)
+                    .position(
+                        x: 15,
+                        y: MenuUsageChartAxis.yPosition(
+                            for: value,
+                            height: proxy.size.height
+                        )
+                    )
+            }
+        }
+    }
+}
+
+private struct MenuUsagePlot: View {
+    let points: [UsageActivityPoint]
+    let revealed: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            plotBackground
+            MenuUsageGrid()
+            area
+            line
+            MenuUsageEndpoint(point: revealed ? points.last : nil)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+
+    private var plotBackground: some View {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Palette.surface.opacity(0.62),
+                        Palette.lavender.opacity(0.22)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+    }
+
+    private var area: some View {
+        MenuUsageArea(points: points)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Palette.accent.opacity(0.11),
+                        Palette.accent.opacity(0.005)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .opacity(revealed ? 1 : 0)
+    }
+
+    private var line: some View {
+        MenuUsageLine(points: points)
+            .trim(from: 0, to: revealed ? 1 : 0)
+            .stroke(
+                LinearGradient(
+                    colors: [Palette.green.opacity(0.9), Palette.accent],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+            )
+    }
+}
+
+private struct MenuUsageGrid: View {
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                horizontalLines(size: proxy.size)
+                verticalLines(size: proxy.size)
+            }
+        }
+    }
+
+    private func horizontalLines(size: CGSize) -> some View {
+        ForEach(MenuUsageChartAxis.activityPercents, id: \.self) { value in
+            Rectangle()
+                .fill(Palette.line.opacity(value == 0 ? 0.7 : 0.42))
+                .frame(height: value == 0 ? 0.75 : 0.5)
+                .offset(y: size.height * (1 - CGFloat(value) / 100))
+        }
+    }
+
+    private func verticalLines(size: CGSize) -> some View {
+        ForEach(MenuUsageChartAxis.hours, id: \.self) { hour in
+            Rectangle()
+                .fill(Palette.line.opacity(hour % 6 == 0 ? 0.56 : 0.3))
+                .frame(width: hour % 6 == 0 ? 0.7 : 0.45, height: size.height)
+                .offset(x: size.width * CGFloat(hour) / 24)
+        }
+    }
+}
+
+private struct MenuUsageEndpoint: View {
+    let point: UsageActivityPoint?
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let point {
+                endpoint(point: point, size: proxy.size)
+            }
+        }
+    }
+
+    private func endpoint(point: UsageActivityPoint, size: CGSize) -> some View {
+        let center = CGPoint(
+            x: size.width * point.fraction,
+            y: 6 + max(1, size.height - 12) * (1 - CGFloat(point.activity))
+        )
+        return ZStack(alignment: .topLeading) {
+            Circle()
+                .fill(Palette.accent.opacity(0.14))
+                .frame(width: 12, height: 12)
+                .offset(x: center.x - 6, y: center.y - 6)
+            Circle()
+                .fill(Palette.accent)
+                .overlay(Circle().stroke(Palette.surface, lineWidth: 1))
+                .frame(width: 5, height: 5)
+                .offset(x: center.x - 2.5, y: center.y - 2.5)
+        }
+    }
+}
+
+private struct MenuUsageXAxis: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Color.clear
+                .frame(width: 30, height: 10)
+            GeometryReader { proxy in
+                ForEach(MenuUsageChartAxis.hours, id: \.self) { hour in
+                    Text("\(hour)")
+                        .font(.system(size: 8, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Palette.secondary.opacity(0.64))
+                        .frame(width: 18)
+                        .position(
+                            x: MenuUsageChartAxis.xPosition(
+                                for: hour,
+                                width: proxy.size.width
+                            ),
+                            y: 5
+                        )
+                }
+            }
+        }
+        .frame(height: 11)
+    }
+}
+
+private extension MenuUsageChartAxis {
+    static func yPosition(for value: Int, height: CGFloat) -> CGFloat {
+        let inset: CGFloat = 6
+        let raw = height * (1 - CGFloat(value) / 100)
+        return max(inset, min(height - inset, raw))
+    }
+
+    static func xPosition(for hour: Int, width: CGFloat) -> CGFloat {
+        let halfLabel: CGFloat = 9
+        let raw = width * CGFloat(hour) / 24
+        return min(width - halfLabel, max(halfLabel, raw))
     }
 }
 

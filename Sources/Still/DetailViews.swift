@@ -232,7 +232,7 @@ struct PreferencesView: View {
                     "时间去向",
                     "只在本机保存前台应用名称、分类与停留时段；不读取窗口标题、网页地址、截图或输入内容。",
                     isOn: $model.settings.applicationInsightsEnabled,
-                    icon: "chart-pie"
+                    icon: "chart-line"
                 )
                 Divider().overlay(Palette.line)
                 HStack(spacing: 15) {

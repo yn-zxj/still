@@ -98,6 +98,17 @@ enum LucidePaths {
             p.addLine(to: CGPoint(x: 12, y: 3))
             p.move(to: CGPoint(x: 19, y: 21))
             p.addLine(to: CGPoint(x: 19, y: 9))
+        case "chart-line":
+            p.move(to: CGPoint(x: 3, y: 3))
+            p.addLine(to: CGPoint(x: 3, y: 19))
+            p.addCurve(to: CGPoint(x: 5, y: 21),
+                       control1: CGPoint(x: 3, y: 20.1045695),
+                       control2: CGPoint(x: 3.8954305, y: 21))
+            p.addLine(to: CGPoint(x: 21, y: 21))
+            p.move(to: CGPoint(x: 19, y: 9))
+            p.addLine(to: CGPoint(x: 14, y: 14))
+            p.addLine(to: CGPoint(x: 10, y: 10))
+            p.addLine(to: CGPoint(x: 7, y: 13))
         case "chart-pie":
             p.move(to: CGPoint(x: 21, y: 12))
             p.addCurve(to: CGPoint(x: 21.95, y: 11.002), control1: CGPoint(x: 21.552, y: 11.551), control2: CGPoint(x: 21.95, y: 11.6))
