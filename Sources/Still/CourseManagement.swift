@@ -182,15 +182,28 @@ struct CourseEditor: View {
                             Button("选择视频…", action: chooseVideo).buttonStyle(SettingsButtonStyle())
                         }.padding(14).background(Palette.lavender, in: RoundedRectangle(cornerRadius: 12))
                     } else {
-                        field("视频或网页链接 · 自动识别", text: $form.address)
-                        HStack(spacing: 12) {
-                            Button("识别链接", action: resolveLink).buttonStyle(SettingsButtonStyle())
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("视频或网页链接").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.secondary)
+                            HStack(spacing: 10) {
+                                TextField("", text: $form.address)
+                                    .textFieldStyle(.plain).font(.system(size: 14)).padding(12)
+                                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.line))
+                                    .accessibilityLabel("视频或网页链接")
+                                Button(action: resolveLink) {
+                                    if resolving {
+                                        ProgressView().controlSize(.small).frame(width: 70)
+                                    } else {
+                                        Text("自动识别").frame(width: 70)
+                                    }
+                                }
+                                .buttonStyle(SettingsButtonStyle())
                                 .disabled(resolving || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            if resolving { ProgressView().controlSize(.small) }
-                            if let result = form.resolutionMessage {
-                                Text(result).font(.system(size: 12)).foregroundStyle(Palette.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
+                        }
+                        if let result = form.resolutionMessage {
+                            Text(result).font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         HStack(spacing: 10) {
                             Button(parserInstaller.installed ? "更新解析组件" : "安装通用解析组件") { parserInstaller.install() }.buttonStyle(SettingsButtonStyle())

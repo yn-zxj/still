@@ -82,12 +82,14 @@ struct PostureView: View {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!)
                         }.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(Palette.accent)
                     }
-                    Divider().overlay(Palette.line)
-                    Text("校准前").font(.system(size: 13, weight: .semibold))
-                    Text("镜头固定，背部有支撑，肩颈放松。面部完整入镜，保持 4 秒；双肩识别稳定时会启用更多检测。")
-                        .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-                }.frame(width: 225, alignment: .leading).card(padding: 21)
+                }
+                .frame(width: 225, alignment: .leading)
+                .padding(21)
+                .frame(height: 320, alignment: .top)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Palette.line.opacity(0.7), lineWidth: 1))
             }
+            calibrationNote
             HStack(spacing: 14) {
                 cue("头部侧倾", value: delta(monitor.lastSample?.headRoll, monitor.baseline?.headRoll, suffix: "°"), icon: "scan-face")
                 cue("俯仰变化", value: delta(monitor.lastSample?.pitch, monitor.baseline?.pitch, suffix: "°"), icon: "scan-face")
@@ -122,6 +124,18 @@ struct PostureView: View {
     }
     private var shouldersAvailable: Bool { monitor.lastSample?.hasShoulders == true && monitor.baseline?.hasShoulders == true }
     private var thresholds: PostureThresholds { model.settings.postureThresholds }
+    private var calibrationNote: some View {
+        HStack(alignment: .top, spacing: 13) {
+            LineIcon(systemName: "scan-face", size: 18).foregroundStyle(Palette.accent)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("校准前").font(.system(size: 13, weight: .semibold))
+                Text("镜头固定，背部有支撑，肩颈放松。面部完整入镜，保持 4 秒；双肩识别稳定时会启用更多检测。")
+                    .font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }.card(padding: 18)
+    }
     private var reminderFeedback: String {
         let assessment = monitor.assessment
         if assessment.state == .unavailable { return "识别暂不可用 · 不累积提醒时间" }
