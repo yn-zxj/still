@@ -144,11 +144,20 @@ private final class FrameReceiver: NSObject, SCStreamOutput, SCStreamDelegate {
         let width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image), stride = CVPixelBufferGetBytesPerRow(image)
         guard width > 0, height > 0 else { return nil }
         let data = base.assumingMemoryBound(to: UInt8.self)
-        return (0..<ScreenActivityEvidence.height).flatMap { y in
-            (0..<ScreenActivityEvidence.width).map { x -> UInt8 in
-                let index = (y * height / ScreenActivityEvidence.height) * stride + (x * width / ScreenActivityEvidence.width) * 4
-                return UInt8((Int(data[index]) * 29 + Int(data[index+1]) * 150 + Int(data[index+2]) * 77) / 256)
+        let sampleWidth = ScreenActivityEvidence.width
+        let sampleHeight = ScreenActivityEvidence.height
+        var result = [UInt8]()
+        result.reserveCapacity(sampleWidth * sampleHeight)
+        for y in 0..<sampleHeight {
+            let row = (y * height / sampleHeight) * stride
+            for x in 0..<sampleWidth {
+                let index = row + (x * width / sampleWidth) * 4
+                let blue = Int(data[index]) * 29
+                let green = Int(data[index + 1]) * 150
+                let red = Int(data[index + 2]) * 77
+                result.append(UInt8((blue + green + red) / 256))
             }
         }
+        return result
     }
 }
