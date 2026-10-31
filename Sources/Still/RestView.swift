@@ -203,7 +203,7 @@ struct MenuPanelView: View {
                 enabled: model.settings.applicationInsightsEnabled,
                 action: insights
             )
-            MenuUsageChart(segments: model.engine.segments, date: model.engine.now)
+            MenuUsageChart(history: model.fatigueHistory, date: model.engine.now)
             if let error = model.reminderError {
                 Text(error)
                     .font(.system(size: 12))
@@ -547,13 +547,13 @@ enum MenuUsageChartAxis {
 }
 
 private struct MenuUsageChart: View {
-    let segments: [UsageSegment]
+    let history: FatigueHistory
     let date: Date
     @StateObject private var revealState = MenuUsageChartRevealState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var points: [UsageActivityPoint] {
-        UsageStatistics.activity(segments: segments, date: date)
+    private var points: [FatiguePlotPoint] {
+        history.points(at: date)
     }
 
     var body: some View {
@@ -578,7 +578,7 @@ private struct MenuUsageChart: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.75), value: revealState.revealed)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("今日每五分钟活跃度图")
+        .accessibilityLabel("今日疲劳值曲线")
     }
 }
 
@@ -588,7 +588,7 @@ private struct MenuUsageChartHeader: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("今日节奏")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                Text("每 5 分钟活跃度 · 未来时段留白")
+                Text("疲劳值 · 无记录与未来时段留白")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Palette.secondary)
             }
@@ -626,14 +626,13 @@ private struct MenuUsageYAxis: View {
 }
 
 private struct MenuUsagePlot: View {
-    let points: [UsageActivityPoint]
+    let points: [FatiguePlotPoint]
     let revealed: Bool
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             plotBackground
             MenuUsageGrid()
-            area
             line
             MenuUsageEndpoint(point: revealed ? points.last : nil)
         }
@@ -652,21 +651,6 @@ private struct MenuUsagePlot: View {
                     endPoint: .bottomTrailing
                 )
             )
-    }
-
-    private var area: some View {
-        MenuUsageArea(points: points)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Palette.accent.opacity(0.11),
-                        Palette.accent.opacity(0.005)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .opacity(revealed ? 1 : 0)
     }
 
     private var line: some View {
@@ -698,7 +682,7 @@ private struct MenuUsageGrid: View {
             Rectangle()
                 .fill(Palette.line.opacity(value == 0 ? 0.7 : 0.42))
                 .frame(height: value == 0 ? 0.75 : 0.5)
-                .offset(y: size.height * (1 - CGFloat(value) / 100))
+                .offset(y: 6 + max(1, size.height - 12) * (1 - CGFloat(value) / 100))
         }
     }
 
@@ -713,7 +697,7 @@ private struct MenuUsageGrid: View {
 }
 
 private struct MenuUsageEndpoint: View {
-    let point: UsageActivityPoint?
+    let point: FatiguePlotPoint?
 
     var body: some View {
         GeometryReader { proxy in
@@ -723,7 +707,7 @@ private struct MenuUsageEndpoint: View {
         }
     }
 
-    private func endpoint(point: UsageActivityPoint, size: CGSize) -> some View {
+    private func endpoint(point: FatiguePlotPoint, size: CGSize) -> some View {
         let inset: CGFloat = 6
         let activity = CGFloat(point.activity)
         let plotHeight = max(1, size.height - inset * 2)
@@ -789,32 +773,15 @@ private final class MenuUsageChartRevealState: ObservableObject {
 }
 
 private struct MenuUsageLine: Shape {
-    let points: [UsageActivityPoint]
+    let points: [FatiguePlotPoint]
     func path(in rect: CGRect) -> Path {
         var path = Path()
         let plot = rect.insetBy(dx: 0, dy: 6)
         for (index, point) in points.enumerated() {
             let position = CGPoint(x: plot.width * point.fraction,
                                    y: plot.minY + plot.height * (1 - point.activity))
-            if index == 0 { path.move(to: position) } else { path.addLine(to: position) }
+            if index == 0 || point.startsSegment { path.move(to: position) } else { path.addLine(to: position) }
         }
-        return path
-    }
-}
-
-private struct MenuUsageArea: Shape {
-    let points: [UsageActivityPoint]
-    func path(in rect: CGRect) -> Path {
-        guard let first = points.first, let last = points.last else { return Path() }
-        var path = Path()
-        let plot = rect.insetBy(dx: 0, dy: 6)
-        path.move(to: CGPoint(x: plot.width * first.fraction, y: plot.maxY))
-        for point in points {
-            path.addLine(to: CGPoint(x: plot.width * point.fraction,
-                                     y: plot.minY + plot.height * (1 - point.activity)))
-        }
-        path.addLine(to: CGPoint(x: plot.width * last.fraction, y: plot.maxY))
-        path.closeSubpath()
         return path
     }
 }

@@ -77,6 +77,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     let isUITest: Bool
     private let defaults: UserDefaults
     let monitor: SystemActivityMonitor
+    let fatigueHistory: FatigueHistory
     let activityDiagnostics: ActivityDiagnostics
     private let repository: UsageRepository?
     private var timer: Timer?
@@ -102,6 +103,10 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
                     .appendingPathComponent("StillActivityDiagnostics-\(getpid())", isDirectory: true)
                 : FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
                     .appendingPathComponent("Logs/Still", isDirectory: true)
+        )
+        fatigueHistory = FatigueHistory(
+            fileURL: isUITest ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Still/FatigueHistory.json"),
+            diagnostics: isUITest ? nil : try? Data(contentsOf: activityDiagnostics.fileURL)
         )
         let arguments = ProcessInfo.processInfo.arguments
         let testLibrary = isUITest ? arguments.firstIndex(of: "--ui-test-library").flatMap { index in
@@ -225,6 +230,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         let sample = currentSample()
         if !sample.available { coursePlayer.pause() }
         engine.tick(sample)
+        fatigueHistory.record(date: engine.now, percent: engine.fatiguePercent)
         activityDiagnostics.record(
             sample: sample,
             phase: engine.phase,
@@ -307,11 +313,13 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func save() {
         guard !isUITest else { return }
         do {
+            fatigueHistory.record(date: engine.now, percent: engine.fatiguePercent)
             guard let repository else { return }
             try repository.save(segments: engine.segments,
                                 applicationSegments: engine.applicationSegments,
                                 breaks: engine.breaks)
             if let data = try? JSONEncoder().encode(engine.checkpoint) { defaults.set(data, forKey: "checkpoint.v1") }
+            try fatigueHistory.save()
             storageError = nil
         } catch { storageError = "记录保存失败：\(error.localizedDescription)" }
     }
