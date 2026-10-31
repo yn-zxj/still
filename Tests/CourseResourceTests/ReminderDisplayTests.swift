@@ -57,4 +57,8 @@ struct ReminderDisplayTests {
         #expect(!ReminderManualClosePolicy.shouldSnooze(.completed))
         #expect(!ReminderManualClosePolicy.shouldSnooze(nil))
     }
+    @Test func quickPanelChartUsesFineTwoHourAndTwentyPercentAxes() {
+        #expect(MenuUsageChartAxis.activityPercents == [100, 80, 60, 40, 20, 0])
+        #expect(MenuUsageChartAxis.hours == [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24])
+    }
 }
