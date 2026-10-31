@@ -7,9 +7,9 @@ public enum TrackingMode: String, Codable, CaseIterable {
 }
 
 public enum ReminderStyle: String, Codable, CaseIterable {
-    case fullScreen, mini, notification
+    case fullScreen, mini, simple, notification
     public var title: String {
-        switch self { case .fullScreen: return "全屏弹窗"; case .mini: return "迷你弹窗"; case .notification: return "系统通知" }
+        switch self { case .fullScreen: return "全屏弹窗"; case .mini: return "迷你弹窗"; case .simple: return "简洁提醒"; case .notification: return "系统通知" }
     }
 }
 

@@ -176,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             reminders = ReminderWindowController(model: model)
             reminders?.applyAppearance(model.settings.appearanceTheme.appearance)
         }
-        reminders?.present(presentation, style: model.settings.reminderStyle == .fullScreen ? .fullScreen : .mini)
+        reminders?.present(presentation, style: model.settings.reminderStyle == .notification ? .mini : model.settings.reminderStyle)
     }
 
     private func applyWindowAppearance() {

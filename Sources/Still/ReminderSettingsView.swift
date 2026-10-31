@@ -52,14 +52,22 @@ struct ReminderSettingsView: View {
                 Text(error).font(.system(size: 13)).foregroundStyle(Color.orange)
             }
             HStack {
-                Text(model.settings.reminderStyle == .fullScreen ? "按 Esc 退出全屏" : model.settings.reminderStyle == .notification ? "通知中可开始休息或延后" : "支持延后和跳过")
+                Text(styleHint)
                     .font(.system(size: 12)).foregroundStyle(Palette.secondary)
                 Spacer()
                 Button { model.showPreview?() } label: { LineLabel("预览提醒", systemImage: "play") }.buttonStyle(SoftButtonStyle())
             }
         }.card(padding: 24).onAppear { model.refreshNotificationStatus() }
     }
+    private var styleHint: String {
+        switch model.settings.reminderStyle {
+        case .fullScreen: return "所有屏幕同时提醒，课程只在点击的屏幕播放"
+        case .mini: return "所有屏幕同时提醒，课程只在点击的屏幕播放"
+        case .simple: return "所有屏幕顶部显示文字与倒计时，结束后自动收起"
+        case .notification: return "通知中可开始休息或延后"
+        }
+    }
     private func icon(_ style: ReminderStyle) -> String {
-        switch style { case .fullScreen: return "maximize"; case .mini: return "rectangle-vertical"; case .notification: return "bell" }
+        switch style { case .fullScreen: return "maximize"; case .mini: return "rectangle-vertical"; case .simple: return "minus"; case .notification: return "bell" }
     }
 }
