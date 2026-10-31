@@ -123,21 +123,11 @@ struct RulesView: View {
                 numericRow("每次休息", subtitle: "完成休息后，开始新的一轮", value: $model.settings.restMinutes, range: 1...30, step: 1, icon: "leaf")
             }.card(padding: 25)
             VStack(spacing: 22) {
-                ruleRow("如何记录", "阅读模式会持续计时，直到休息或系统睡眠。") {
-                    CompactMenuPicker(
-                        selection: $model.settings.mode,
-                        values: TrackingMode.allCases,
-                        title: \.title,
-                        accessibilityTitle: "计时方式"
-                    )
-                }
-                Divider().overlay(Palette.line)
                 ruleRow("多久没有操作视为离开", "活动估算会回溯空闲边界；短暂停顿不会清空本轮。") {
                     CompactMenuPicker(
                         selection: $model.settings.idleSeconds,
                         values: [30, 60, 90, 180],
                         title: { $0 < 60 ? "\($0) 秒" : "\($0 / 60) 分钟" },
-                        isEnabled: model.settings.mode != .reading,
                         accessibilityTitle: "空闲阈值"
                     )
                 }

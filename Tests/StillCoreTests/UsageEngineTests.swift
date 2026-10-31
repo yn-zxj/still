@@ -14,8 +14,8 @@ struct UsageEngineTests {
         for second in from...to { engine.tick(sample(Double(second), idle: idleSince.map { Double(max(0, second - $0)) } ?? 0)) }
     }
 
-    @Test func readingCannotAccumulateWhileDisplayUnavailableOrAcrossWakeGap() {
-        var settings = MonitorSettings(); settings.mode = .reading
+    @Test func cannotAccumulateWhileDisplayUnavailableOrAcrossWakeGap() {
+        let settings = MonitorSettings()
         var engine = UsageEngine(settings: settings)
         advance(&engine, from: 0, to: 60)
         for second in 61...180 { engine.tick(sample(Double(second), idle: 500, available: false)) }
@@ -97,12 +97,15 @@ struct UsageEngineTests {
         #expect((engine.breaks.first?.outcome) == (.completed))
     }
 
-    @Test func testReadingModeCountsWithoutInput() {
-        var settings = MonitorSettings(); settings.mode = .reading
+    @Test func legacyReadingSettingUsesActivityDetectionAndIsNoLongerSaved() throws {
+        let settings = try JSONDecoder().decode(MonitorSettings.self, from: Data(#"{"mode":"reading"}"#.utf8))
+        let saved = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        #expect(saved["mode"] == nil)
         var engine = UsageEngine(settings: settings)
         advance(&engine, from: 0, to: 400, idleSince: 0)
-        #expect(abs((engine.roundSeconds) - (400)) <= 0.01)
-        #expect((engine.phase) == (.working))
+        #expect(engine.segments.reduce(0) { $0 + $1.seconds } == 0)
+        #expect(engine.fatiguePercent == 0)
+        #expect(engine.phase == .away)
         #expect(engine.breaks.isEmpty)
     }
 
@@ -264,7 +267,6 @@ struct UsageEngineTests {
         let settings = try JSONDecoder().decode(MonitorSettings.self, from: data)
         #expect(settings.workMinutes == 25)
         #expect(settings.restMinutes == 7)
-        #expect(settings.mode == .reading)
         #expect(settings.remindersEnabled == false)
         #expect(settings.showMenuCountdown == false)
         #expect(settings.reminderStyle == .mini)
@@ -432,7 +434,7 @@ struct UsageEngineTests {
         #expect(engine.breaks.isEmpty)
     }
     @Test func screenOffRecoveryPersistsAcrossRelaunchWithoutInventingUsageOrBreaks() throws {
-        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1; settings.mode = .reading
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
         var engine = UsageEngine(settings: settings)
         advance(&engine, from: 0, to: 60)
         engine.tick(sample(61, available: false))

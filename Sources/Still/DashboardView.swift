@@ -132,19 +132,6 @@ struct TodayView: View {
                     .help("同一轮累计使用时长，充分休息后开始新一轮")
             }
             timeline
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12).fill(Palette.lavender).frame(width: 42, height: 42)
-                    LineIcon(systemName: "book.closed").font(.system(size: 18, weight: .light)).foregroundStyle(Palette.accent)
-                }
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("持续阅读").font(.system(size: 14, weight: .medium))
-                    Text("没有键鼠操作时继续计时。").font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                }
-                Spacer()
-                Toggle("持续阅读", isOn: Binding(get: { model.settings.mode == .reading }, set: { model.settings.mode = $0 ? .reading : .activity }))
-                    .labelsHidden().toggleStyle(.switch).font(.system(size: 13)).fixedSize()
-            }.card(padding: 20)
         }
     }
 
@@ -224,7 +211,7 @@ struct TodayView: View {
             HStack {
                 Text("使用时段").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                HStack(spacing: 5) { Circle().fill(Palette.accent.opacity(0.75)).frame(width: 5, height: 5); Text(model.settings.mode.title) }
+                HStack(spacing: 5) { Circle().fill(Palette.accent.opacity(0.75)).frame(width: 5, height: 5); Text("活动检测") }
                     .font(.system(size: 12)).foregroundStyle(Palette.secondary)
             }
             DayTimeline(segments: model.engine.segments, date: model.engine.now)

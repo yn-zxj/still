@@ -100,9 +100,8 @@ public struct UsageEngine {
     }
 
     public mutating func updateSettings(_ newSettings: MonitorSettings) {
-        if settings.mode != newSettings.mode || !newSettings.applicationInsightsEnabled {
+        if !newSettings.applicationInsightsEnabled {
             activeSegmentID = nil; activeApplicationSegmentID = nil
-            if settings.mode != newSettings.mode { previous = nil; observedSince = nil }
         }
         settings = newSettings
     }
@@ -151,7 +150,7 @@ public struct UsageEngine {
             observedSince = sample.monotonic; recoveredIdleSeconds = 0
         }
 
-        if settings.mode == .activity && sample.idleSeconds >= Double(settings.idleSeconds) {
+        if sample.idleSeconds >= Double(settings.idleSeconds) {
             let idleStart = sample.date.addingTimeInterval(-max(0, sample.idleSeconds))
             trimActiveSegment(at: idleStart)
             activeSegmentID = nil; activeApplicationSegmentID = nil
@@ -262,7 +261,7 @@ public struct UsageEngine {
            abs(segments[index].endedAt.timeIntervalSince(start)) < 0.1 {
             segments[index].endedAt = end; segments[index].seconds += seconds
         } else {
-            let segment = UsageSegment(roundID: roundID, startedAt: start, endedAt: end, seconds: seconds, mode: settings.mode)
+            let segment = UsageSegment(roundID: roundID, startedAt: start, endedAt: end, seconds: seconds, mode: .activity)
             segments.append(segment); activeSegmentID = segment.id
         }
         addApplicationUsage(from: start, to: end, seconds: seconds, application: application)

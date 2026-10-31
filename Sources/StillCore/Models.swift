@@ -1,5 +1,6 @@
 import Foundation
 
+// Historical segment labels; reading is retained only to decode/export old records.
 public enum TrackingMode: String, Codable, CaseIterable {
     case activity, reading
     public var title: String { self == .activity ? "活动估算" : "持续阅读" }
@@ -30,7 +31,6 @@ public struct MonitorSettings: Codable, Equatable {
     public var idleSeconds = 90
     public var snoozeMinutes = 5
     public var repeatMinutes = 5
-    public var mode: TrackingMode = .activity
     public var remindersEnabled = true
     public var soundEnabled = true
     public var notificationsEnabled = false
@@ -55,7 +55,7 @@ public struct MonitorSettings: Codable, Equatable {
     public var showDailyTimeInReminder = true
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes, mode
+        case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes
         case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
         case coursesEnabled, postureEnabled, posturePlayful, postureThresholds, applicationInsightsEnabled
         case agentActivityEnabled, hapiSyncEnabled, hapiExecutablePath, dockIconVisible, automaticUpdateChecks
@@ -69,7 +69,6 @@ public struct MonitorSettings: Codable, Equatable {
         idleSeconds = max(1, try c.decodeIfPresent(Int.self, forKey: .idleSeconds) ?? idleSeconds)
         snoozeMinutes = max(1, try c.decodeIfPresent(Int.self, forKey: .snoozeMinutes) ?? snoozeMinutes)
         repeatMinutes = max(1, try c.decodeIfPresent(Int.self, forKey: .repeatMinutes) ?? repeatMinutes)
-        mode = try c.decodeIfPresent(TrackingMode.self, forKey: .mode) ?? mode
         remindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .remindersEnabled) ?? remindersEnabled
         soundEnabled = try c.decodeIfPresent(Bool.self, forKey: .soundEnabled) ?? soundEnabled
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? notificationsEnabled

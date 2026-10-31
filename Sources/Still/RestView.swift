@@ -175,7 +175,7 @@ struct MenuPanelView: View {
                     MenuMetricCard(
                         title: "今日时长",
                         value: durationText(model.today.seconds),
-                        detail: "完成休息 \(model.today.completedBreaks) 次 · \(model.settings.mode.title)",
+                        detail: "完成休息 \(model.today.completedBreaks) 次",
                         progress: nil,
                         tint: Palette.green
                     )
