@@ -554,6 +554,14 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 0.7.2 正式包早于该源码提交，因此界面仍显示“每 5 分钟活跃度”；0.7.3 只负责把已完成的疲劳历史曲线发布给用户，不包含新的计时公式。官网已完成，本轮不替换本机 `/Applications/息间.app`，由用户自行升级。
 - 0.7.3 (33) 发布前本地复验：为 `FatigueObservation` 与 `FatiguePlotPoint` 补齐 `Sendable`，消除 Swift 6 并发警告；152 项测试再次通过（95 核心 + 57 资源/UI），`arm64 + x86_64` 通用构建、两个切片 macOS 13.0、严格签名、Bundle 启动和 OpenPose 模型摘要均通过。`dist/息间.app` 标识为 0.7.3 (33)，本机 `/Applications/息间.app` 未替换。
 
+#### 0.7.3 发布审计
+
+- 发布提交 `bf5b2180f5def8ed3a9772c6c2cf8d595808e4ba` 已推送并创建带注释标签 `v0.7.3`。标签流水线 `41278152148` 完成 152 项测试、通用构建、macOS 14 Apple Silicon 原生启动、Intel 原生启动和 GitHub Release 发布；同提交主分支流水线 `41278152114` 也全部通过且按规则跳过发布。
+- 正式 Release：[v0.7.3](https://github.com/yn-zxj/still/releases/tag/v0.7.3)，标题“息间 0.7.3”，非草稿、非预发布，并已成为 Latest。公开 `/releases/latest` 已重定向到该标签。
+- 通过公开 Release 匿名下载并审计三个附件。ZIP 大小 `11,755,228` 字节，SHA-256 `d22f60cad2d46284c167c8708d32d01fc35a147a8dccc19cccb146d87112b144`，与侧车、GitHub 摘要和 Release 说明一致；压缩完整性和 13 个归档路径检查通过。
+- 下载包 Bundle 为 `local.still.app`、0.7.3 (33)、`x86_64 arm64`，两个切片最低 macOS 13.0；严格代码签名、`--verify-bundle` 和 OpenPose 模型摘要校验通过。包内未发现课程视频、截图、数据库、CSV、活动日志或健康数据。
+- 本机 `/Applications/息间.app` 保持 0.7.2，未因本次发布被替换；用户可自行从新 Release 升级。产物仍为 ad-hoc 签名，未使用 Developer ID，也未通过 Apple 公证。
+
 ### GitHub Pages 官网重设计
 
 - 按 `frontend-design` 重新设计“清晨工作台”官网：浅色纸张背景、深绿正文、鼠尾草绿分区和珊瑚强调；主视觉保留真实 Today 截图，动效集中在呼吸间隔标识、页面进入和滚动出现。
