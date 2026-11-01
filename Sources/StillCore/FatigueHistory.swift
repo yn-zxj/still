@@ -1,12 +1,12 @@
 import Foundation
 
-public struct FatigueObservation: Codable, Equatable {
+public struct FatigueObservation: Codable, Equatable, Sendable {
     public var date: Date
     public var percent: Int
     public init(date: Date, percent: Int) { self.date = date; self.percent = min(100, max(0, percent)) }
 }
 
-public struct FatiguePlotPoint: Equatable {
+public struct FatiguePlotPoint: Equatable, Sendable {
     public var fraction: Double
     public var activity: Double
     public var startsSegment: Bool
