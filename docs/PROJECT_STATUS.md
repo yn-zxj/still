@@ -560,3 +560,4 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 本次只新增静态官网与 Pages 工作流，不修改桌面应用源码、版本号、安装包或本机 `/Applications/息间.app`；本地版本由用户自行升级。
 - 官网提交 `abb4979f690f2000a9a604450aed24b5a418e692` 已推送公开 `main`。GitHub Pages workflow `41262188965` 的配置、上传与部署全部成功，公开地址为 [https://yn-zxj.github.io/still/](https://yn-zxj.github.io/still/)。
 - 匿名公开验收确认首页、样式、脚本和 9 张截图全部返回 HTTP 200，线上文件 SHA-256 与提交逐项一致；浏览器渲染无损坏图片，截图比例保持原始比例。桌面与 390 px 手机视口无横向溢出，公开页提醒标签、图片放大、键盘关闭和手机导航通过。
+- 同提交的 macOS workflow `41262188953` 全部通过：测试与 universal 构建、macOS 14 Apple Silicon 原生启动、Intel 原生启动成功；没有标签，发布任务按规则跳过，未创建或修改 GitHub Release。
