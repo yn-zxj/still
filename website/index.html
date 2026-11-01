@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eef3ed">
+    <meta
+      name="description"
+      content="息间 Still 是一款免费、开源的 macOS 用眼与休息提醒应用：安静记录使用节奏，在需要休息时轻轻出现。"
+    >
+    <meta property="og:title" content="息间 Still — 把忙碌切成会呼吸的间隔">
+    <meta
+      property="og:description"
+      content="免费开源的 macOS 用眼与休息提醒。数据留在本机，没有账号，没有订阅。"
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://yn-zxj.github.io/still/">
+    <meta property="og:image" content="https://yn-zxj.github.io/still/assets/icon.png">
+    <title>息间 Still — 用眼与休息提醒</title>
+    <link rel="canonical" href="https://yn-zxj.github.io/still/">
+    <link rel="icon" href="./assets/icon.png">
+    <script>document.documentElement.classList.add("js");</script>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="息间 Still 首页">
+        <img src="./assets/icon.png" width="38" height="38" alt="">
+        <span class="brand-name">息间</span>
+        <span class="brand-wordmark">STILL</span>
+      </a>
+
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="sr-only">打开导航</span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </button>
+
+      <nav id="site-nav" class="site-nav" aria-label="主导航">
+        <a href="#rhythm">使用节奏</a>
+        <a href="#reminders">休息提醒</a>
+        <a href="#courses">休息课程</a>
+        <a href="#posture">坐姿关照</a>
+        <a href="#privacy">隐私</a>
+        <a class="nav-download" href="https://github.com/yn-zxj/still/releases/latest">下载</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section id="top" class="hero">
+        <div class="hero-ambient" aria-hidden="true"></div>
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <p class="kicker page-enter">
+              <span class="kicker-line"></span>
+              macOS · 免费开源
+            </p>
+            <h1 class="page-enter" data-delay="70">
+              把忙碌，<br>
+              切成<span>会呼吸的间隔。</span>
+            </h1>
+            <p class="hero-lede page-enter" data-delay="130">
+              息间在你投入工作时安静记录，在需要离开屏幕时轻轻出现。
+              没有账号，没有订阅，使用数据留在这台 Mac。
+            </p>
+            <div class="hero-actions page-enter" data-delay="190">
+              <a class="button button-primary" href="https://github.com/yn-zxj/still/releases/latest">
+                下载 macOS 版
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>
+              </a>
+              <a class="button button-secondary" href="https://github.com/yn-zxj/still">
+                查看源码
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5 3 12l5 7m8-14 5 7-5 7"/></svg>
+              </a>
+            </div>
+            <dl class="hero-facts page-enter" data-delay="250">
+              <div><dt>系统</dt><dd>macOS 13+</dd></div>
+              <div><dt>芯片</dt><dd>Universal</dd></div>
+              <div><dt>数据</dt><dd>仅在本机</dd></div>
+            </dl>
+          </div>
+
+          <div class="hero-visual page-enter" data-delay="120">
+            <div class="breathing-mark" aria-hidden="true">
+              <span class="breathing-orbit breathing-orbit-outer"></span>
+              <span class="breathing-orbit breathing-orbit-inner"></span>
+              <span class="breathing-core">
+                <img src="./assets/icon.png" width="58" height="58" alt="">
+              </span>
+            </div>
+
+            <figure class="app-window" data-lightbox>
+              <div class="window-bar" aria-hidden="true">
+                <span></span><span></span><span></span>
+                <small>息间 · 今天</small>
+              </div>
+              <img
+                src="./assets/screenshots/today.webp"
+                width="2160"
+                height="1580"
+                alt="息间今天的概览页面，显示下一轮休息倒计时与疲劳值"
+                fetchpriority="high"
+              >
+              <figcaption>今天 · 真实应用截图</figcaption>
+            </figure>
+
+            <div class="rest-ready">
+              <span class="signal" aria-hidden="true"></span>
+              <span><small>下一段间隔</small><strong>45 分钟专注 / 5 分钟休息</strong></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="principles" aria-label="息间的三个原则">
+        <div class="shell principles-grid">
+          <article>
+            <span class="principle-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 8v4l2.5 2.5"/></svg>
+            </span>
+            <div><h2>从活动判断</h2><p>锁屏、息屏和休眠时停止累计。</p></div>
+          </article>
+          <article>
+            <span class="principle-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 15c2.1 0 2.1-6 4.2-6s2.1 8 4.2 8 2.1-10 4.2-10 2.1 8 3.4 8"/></svg>
+            </span>
+            <div><h2>提醒有分寸</h2><p>短暂停顿不会立刻打断这一轮。</p></div>
+          </article>
+          <article>
+            <span class="principle-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 2.8 7.8 7 10 4.2-2.2 7-5.6 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+            </span>
+            <div><h2>本地优先</h2><p>不需要账号，不上传使用记录。</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="rhythm" class="section shell rhythm-section">
+        <div class="section-head reveal">
+          <p class="kicker"><span class="kicker-line"></span> 看见节奏</p>
+          <div class="section-head-row">
+            <h2>不只坐了多久，<br>也看见一天怎样被消耗。</h2>
+            <p>疲劳值来自使用与休息节奏的估算，不是医学检测。没有记录的时间与未来时段留空，避免把空白误画成忙碌。</p>
+          </div>
+        </div>
+
+        <div class="rhythm-layout">
+          <figure class="large-shot reveal" data-lightbox>
+            <img
+              src="./assets/screenshots/insights.webp"
+              width="2160"
+              height="1580"
+              alt="息间时间去向页面，显示应用类别、使用时间和今日时间流"
+              loading="lazy"
+            >
+            <figcaption>时间去向 · 截图中的个人应用名已替换为中性示例</figcaption>
+          </figure>
+
+          <aside class="rhythm-note reveal" data-delay="110">
+            <p class="note-label">一天的间隔</p>
+            <div class="interval-scale" aria-hidden="true">
+              <span class="focus"></span>
+              <span class="rest"></span>
+              <span class="focus"></span>
+              <span class="rest"></span>
+              <span class="focus"></span>
+              <i></i>
+            </div>
+            <h3>专注，也要有收束。</h3>
+            <p>25/5、45/5、60/10 分钟，或按自己的节奏调整。曲线与时间流共用同一份本地记录。</p>
+            <ul>
+              <li>锁屏与休眠自动暂停</li>
+              <li>暂停统计不清空已有记录</li>
+              <li>日均只按已有数据计算</li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <section class="status-section">
+        <div class="shell status-band">
+          <div class="status-copy reveal">
+            <p class="kicker kicker-light"><span class="kicker-line"></span> 菜单栏入口</p>
+            <h2>需要时看一眼，<br>不需要时退到背景。</h2>
+            <p>菜单栏只留图标与疲劳百分比。展开后可以查看下一轮休息、今日使用、时间去向，也能暂停提醒或打开主窗口。</p>
+            <div class="status-tags">
+              <span>疲劳百分比</span>
+              <span>时间去向</span>
+              <span>快速暂停</span>
+            </div>
+          </div>
+          <figure class="status-shot reveal" data-delay="120" data-lightbox>
+            <img
+              src="./assets/screenshots/status-panel.webp"
+              width="1052"
+              height="1322"
+              alt="息间菜单栏快捷面板，显示疲劳值、今日使用和时间去向"
+              loading="lazy"
+            >
+            <figcaption>菜单栏快捷面板 · 真实应用截图</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="reminders" class="section shell reminder-section">
+        <div class="section-head reveal">
+          <p class="kicker"><span class="kicker-line"></span> 休息提醒</p>
+          <div class="section-head-row">
+            <h2>出现得刚好，<br>也不会挡住思路。</h2>
+            <p>从安静横幅到全屏休息，按你希望被打断的程度选择。提醒打开即开始计时，主动关闭则稍后再来。</p>
+          </div>
+        </div>
+
+        <div class="reminder-switcher reveal" role="tablist" aria-label="提醒方式">
+          <button
+            class="reminder-tab is-active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="reminder-preview"
+            data-image="./assets/screenshots/reminder-mini-course.webp"
+            data-caption="迷你提醒 · 休息同时推荐一段可跟练课程"
+            data-title="一小段休息，<br>也可以有内容。"
+            data-body="打开窗口立即倒计时。选择课程后进入跟练，倒计时暂停；不跟练时，到点自动收起。"
+          >
+            迷你提醒
+          </button>
+          <button
+            class="reminder-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="reminder-preview"
+            data-image="./assets/screenshots/reminder-full.webp"
+            data-caption="全屏提醒 · 多显示器同步出现"
+            data-title="离开屏幕一会儿，<br>整套动作也能在这里完成。"
+            data-body="多块屏幕同步显示休息倒计时；点击哪一块，就在哪一块播放课程，避免多个声音同时响起。"
+          >
+            全屏提醒
+          </button>
+          <button
+            class="reminder-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="reminder-preview"
+            data-image="./assets/screenshots/reminder-banner.webp"
+            data-caption="简洁横幅 · 只保留文字、倒计时与关闭"
+            data-title="只说一句，<br>就够了。"
+            data-body="屏幕顶部居中的轻量横幅，不挡主要内容。关闭会安排稍后提醒，不会把这一轮休息当作完成。"
+          >
+            简洁横幅
+          </button>
+        </div>
+
+        <div id="reminder-preview" class="reminder-stage reveal" role="tabpanel" aria-live="polite">
+          <figure class="reminder-media" data-lightbox>
+            <img
+              id="reminder-image"
+              src="./assets/screenshots/reminder-mini-course.webp"
+              width="880"
+              height="1320"
+              alt="息间迷你休息提醒，推荐一段头前倾改善课程"
+            >
+            <figcaption id="reminder-caption">迷你提醒 · 休息同时推荐一段可跟练课程</figcaption>
+          </figure>
+          <div class="reminder-copy">
+            <p class="note-label">REST INTERVAL</p>
+            <h3 id="reminder-title">一小段休息，<br>也可以有内容。</h3>
+            <p id="reminder-body">打开窗口立即倒计时。选择课程后进入跟练，倒计时暂停；不跟练时，到点自动收起。</p>
+            <div class="reminder-rules">
+              <span><i></i> 关闭窗口 = 稍后提醒</span>
+              <span><i></i> 选择课程 = 暂停倒计时</span>
+              <span><i></i> 多屏同步，只播放一个</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="courses" class="section course-section">
+        <div class="shell">
+          <div class="section-head reveal">
+            <p class="kicker"><span class="kicker-line"></span> 休息课程</p>
+            <div class="section-head-row">
+              <h2>把你真正会做的动作，<br>放进休息提醒。</h2>
+              <p>输入网页地址或视频直链，自动识别标题、封面与媒体地址。首次在线播放，同时缓存到本机。</p>
+            </div>
+          </div>
+
+          <div class="course-grid">
+            <figure class="course-shot reveal" data-lightbox>
+              <img
+                src="./assets/screenshots/courses.webp"
+                width="2160"
+                height="1580"
+                alt="息间休息课程页面，展示一段 Bilibili 头前倾改善视频"
+                loading="lazy"
+              >
+              <figcaption>
+                <span>01 / 自建课程库</span>
+                网页课程与视频直连共用一个识别入口
+              </figcaption>
+            </figure>
+            <figure class="course-shot reveal" data-delay="100" data-lightbox>
+              <img
+                src="./assets/screenshots/course-training.webp"
+                width="2160"
+                height="1580"
+                alt="息间课程播放页面，支持播放进度与后台缓存"
+                loading="lazy"
+              >
+              <figcaption>
+                <span>02 / 跟练播放器</span>
+                点击进度条，或用键盘快进与后退
+              </figcaption>
+            </figure>
+          </div>
+
+          <div class="course-caption reveal">
+            <p><strong>示例课程</strong>：Bilibili「5 个动作改善头前倾和含胸驼背」</p>
+            <p>课程内容由你添加，也可补充动作与准备事项。页面中的视频、封面与商标归原作者及平台所有，不属于息间安装包。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="posture" class="section shell posture-section">
+        <figure class="posture-shot reveal" data-lightbox>
+          <img
+            src="./assets/screenshots/posture.webp"
+            width="2160"
+            height="1580"
+            alt="息间坐姿关照页面，摄像头暂停时显示抽象人物"
+            loading="lazy"
+          >
+          <figcaption>坐姿关照 · 摄像头暂停状态，页面不展示个人画面</figcaption>
+        </figure>
+
+        <div class="posture-copy reveal" data-delay="100">
+          <p class="kicker"><span class="kicker-line"></span> 坐姿关照</p>
+          <h2>一个正面摄像头，<br>做它能做的判断。</h2>
+          <p>以你校准时的自然坐姿为参照，观察头部侧倾、俯仰、肩线与头肩比例。连续偏离一段时间才提醒，短暂转头、前后移动或识别丢失不会立刻打断你。</p>
+
+          <dl class="posture-metrics">
+            <div><dt>4 秒</dt><dd>自然坐姿校准</dd></div>
+            <div><dt>12 秒</dt><dd>默认连续偏离</dd></div>
+            <div><dt>本机</dt><dd>模型推理</dd></div>
+          </dl>
+
+          <div class="limit-card">
+            <strong>边界说清楚</strong>
+            <p>正面镜头不能可靠测量标准头前倾角度，也不能判断颈椎曲度、驼背或腰椎状态。提醒用于改变姿势，不替代医学评估。</p>
+          </div>
+
+          <div class="research-links">
+            <a href="https://openaccess.thecvf.com/content_cvpr_2017/html/Cao_Realtime_Multi-Person_2D_CVPR_2017_paper.html">
+              OpenPose · CVPR 2017 <span>↗</span>
+            </a>
+            <a href="https://arxiv.org/abs/1811.12004">
+              Lightweight OpenPose · 2018 <span>↗</span>
+            </a>
+            <a href="https://pubmed.ncbi.nlm.nih.gov/38665167/">
+              颅椎角坐姿研究 · 2024 <span>↗</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section id="privacy" class="section shell privacy-section">
+        <div class="privacy-card reveal">
+          <div class="privacy-title">
+            <p class="kicker"><span class="kicker-line"></span> 本地优先</p>
+            <h2>你的工作记录，<br>不需要交给云。</h2>
+          </div>
+          <div class="privacy-copy">
+            <p>使用统计、应用停留时段、课程与设置保存在本机。前台活动判断不读取窗口标题、网页地址、截图或输入内容；坐姿摄像头只在本机分析，不录像。</p>
+            <div class="privacy-facts">
+              <span><strong>不保存</strong>按键内容</span>
+              <span><strong>不上传</strong>使用历史</span>
+              <span><strong>不录制</strong>摄像头画面</span>
+              <span><strong>不需要</strong>账号与订阅</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="download-section shell">
+        <div class="download-card reveal">
+          <div class="download-icon" aria-hidden="true">
+            <span class="breathing-orbit breathing-orbit-outer"></span>
+            <span class="breathing-orbit breathing-orbit-inner"></span>
+            <img src="./assets/icon.png" width="72" height="72" alt="">
+          </div>
+          <div class="download-copy">
+            <p class="kicker"><span class="kicker-line"></span> 下一次休息</p>
+            <h2>先留给身体。</h2>
+            <p>免费、开源，Universal 安装包同时支持 Apple Silicon 与 Intel Mac。</p>
+          </div>
+          <div class="download-actions">
+            <a class="button button-primary" href="https://github.com/yn-zxj/still/releases/latest">
+              下载最新版
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg>
+            </a>
+            <a class="text-link" href="https://github.com/yn-zxj/still/releases">查看版本记录 <span>↗</span></a>
+          </div>
+        </div>
+        <p class="signing-note">当前安装包为 ad-hoc 签名，尚未经过 Apple Developer ID 签名与公证。若 macOS 首次拦截，请右键应用并选择“打开”。</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-grid">
+        <a class="brand footer-brand" href="#top" aria-label="返回顶部">
+          <img src="./assets/icon.png" width="34" height="34" alt="">
+          <span class="brand-name">息间</span>
+          <span class="brand-wordmark">STILL</span>
+        </a>
+        <p>把休息放回工作里。</p>
+        <nav aria-label="页脚导航">
+          <a href="https://github.com/yn-zxj/still">GitHub</a>
+          <a href="https://github.com/yn-zxj/still/releases">Releases</a>
+          <a href="https://github.com/yn-zxj/still/issues">反馈</a>
+        </nav>
+      </div>
+    </footer>
+
+    <div class="scroll-progress" aria-hidden="true"><span></span></div>
+
+    <dialog id="lightbox" class="lightbox" aria-label="查看大图">
+      <button class="lightbox-close" type="button" aria-label="关闭大图">×</button>
+      <div class="lightbox-inner">
+        <img alt="">
+        <p></p>
+      </div>
+    </dialog>
+  </body>
+</html>
