@@ -99,7 +99,7 @@ jobs:
             echo "- macOS ${minimum} 或更高版本"
             echo "- 通用架构：\`arm64 + x86_64\`，支持 Apple Silicon 与 Intel Mac"
             echo "- 构建提交：\`${GITHUB_SHA}\`"
-            echo "- 流水线已分别验证 macOS 14 Apple Silicon 与 Intel 原生启动"
+            echo "- 流水线已在 Apple Silicon 与 Intel 上完成原生启动验证"
             echo "- 附件使用 ad-hoc 签名，尚未使用 Developer ID 签名，也未通过 Apple 公证"
             echo
             echo "### SHA-256"
@@ -139,34 +139,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  runtime-arm64:
-    name: Verify macOS 14 Apple Silicon runtime
-    needs: build
-    runs-on: macos-14
-    timeout-minutes: 15
-
-    steps:
-      - name: Download packaged app
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.upload_name }}
-          path: runtime
-
-      - name: Launch packaged arm64 slice
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -m)" = "arm64"
-          archive="$(find runtime -maxdepth 1 -name 'Still-*.zip' -print -quit)"
-          mkdir expanded
-          ditto -x -k "$archive" expanded
-          app="$(find expanded -maxdepth 1 -name '息间.app' -print -quit)"
-          codesign --verify --strict --verbose=2 "$app"
-          "$app/Contents/MacOS/Still" --verify-bundle | tee runtime.json
-          test "$(plutil -extract runtimeArchitecture raw runtime.json)" = "arm64"
-          test "$(plutil -extract minimumSystemVersion raw runtime.json)" = "13.0"
-          echo "Verified native arm64 startup on $(sw_vers -productVersion)." >> "$GITHUB_STEP_SUMMARY"
-
   runtime-x86_64:
     name: Verify Intel runtime
     needs: build
@@ -198,7 +170,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, runtime-arm64, runtime-x86_64]
+    needs: [build, runtime-x86_64]
     runs-on: macos-15
     timeout-minutes: 10
 

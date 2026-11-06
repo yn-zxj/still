@@ -583,3 +583,7 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 ### 2026-11-06 菜单栏悬停提示修复
 
 - 移除菜单栏状态项的 AppKit 原生 tooltip，避免应用在后台时系统悬停浮层滞留在其他应用或鼠标附近；疲劳百分比、状态图标、无障碍标签和点击展开行为保持不变。
+- 0.7.4 (34) 发布提交为 `f65ca3275ff315c97dc5bb79af7729930b1bba4b`，标签 `v0.7.4`；本地 152 项测试、通用构建、macOS 13.0 部署目标、严格签名、OpenPose 摘要和 arm64 原生启动通过。
+- 标签流水线 `42230759457` 的双架构构建与 Intel 原生验收成功，但独立 Apple Silicon 重跑任务遇到 GitHub runner 配置 `macos-14-arm64-us-default` 不受支持；`macos-15` 构建任务内的 arm64 原生启动已经通过。Release `v0.7.4` 使用该成功构建产物手动发布，下载包另行复核 SHA-256、Bundle 0.7.4 (34)、`x86_64 arm64`、签名和模型摘要后创建。
+- 后续流水线已移除重复的独立 Apple Silicon 任务，继续由 `macos-15` 构建任务验证 arm64；Intel 原生验收保留在 `macos-15-intel`。
+- 正式 Release 非草稿、非预发布；匿名公开下载已确认 HTTP 200，下载 ZIP 的 SHA-256 为 `04bdc8350ef3e530009c47321f7bbdeb21ce560d11fe9e9ffc97aadc70768745`，与 Release 附件一致。
