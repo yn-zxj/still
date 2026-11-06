@@ -587,3 +587,5 @@ GitHub Actions macOS 构建流水线位于 `.github/workflows/macos-build.yml`�
 - 标签流水线 `42230759457` 的双架构构建与 Intel 原生验收成功，但独立 Apple Silicon 重跑任务遇到 GitHub runner 配置 `macos-14-arm64-us-default` 不受支持；`macos-15` 构建任务内的 arm64 原生启动已经通过。Release `v0.7.4` 使用该成功构建产物手动发布，下载包另行复核 SHA-256、Bundle 0.7.4 (34)、`x86_64 arm64`、签名和模型摘要后创建。
 - 后续流水线已移除重复的独立 Apple Silicon 任务，继续由 `macos-15` 构建任务验证 arm64；Intel 原生验收保留在 `macos-15-intel`。
 - 正式 Release 非草稿、非预发布；匿名公开下载已确认 HTTP 200，下载 ZIP 的 SHA-256 为 `04bdc8350ef3e530009c47321f7bbdeb21ce560d11fe9e9ffc97aadc70768745`，与 Release 附件一致。
+- 流水线修复提交 `43011031466ff318a6966f22ba4d842cb1ddf556` 已推送；修复后的主分支流水线 `42231744940` 完成 152 项测试、通用构建、打包后 arm64 验证和 Intel 原生启动，全部通过。
+- 正式 Release：[v0.7.4](https://github.com/yn-zxj/still/releases/tag/v0.7.4)。
