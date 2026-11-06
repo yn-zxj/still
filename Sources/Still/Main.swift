@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         statusItem.button?.target = self; statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.setAccessibilityLabel("息间快捷面板")
-        statusItem.button?.toolTip = "息间 · 查看使用时长与休息进度"
+        statusItem.button?.toolTip = nil
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: MenuPanelView(model: model,
             open: { [weak self] in self?.popover.performClose(nil); self?.showMainWindow() },
