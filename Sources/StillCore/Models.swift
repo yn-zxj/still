@@ -137,10 +137,40 @@ public struct EngineCheckpoint: Codable {
     public var trackingPaused: Bool
     public var fatigueWorkSeconds: Double?
     public var unavailableSince: Date?
-    public init(roundID: UUID, snoozeUntil: Date?, trackingPaused: Bool, fatigueWorkSeconds: Double? = nil, unavailableSince: Date? = nil) {
+    public var powerTime: SystemPowerTime?
+    public init(roundID: UUID, snoozeUntil: Date?, trackingPaused: Bool, fatigueWorkSeconds: Double? = nil,
+                unavailableSince: Date? = nil, powerTime: SystemPowerTime? = nil) {
         self.roundID = roundID; self.snoozeUntil = snoozeUntil; self.trackingPaused = trackingPaused
         self.fatigueWorkSeconds = fatigueWorkSeconds
         self.unavailableSince = unavailableSince
+        self.powerTime = powerTime
+    }
+}
+
+public struct SystemPowerTime: Codable {
+    public let bootSessionID: UUID?
+    public let date: Date
+    public let continuousSeconds: Double
+    public let awakeSeconds: Double
+
+    public init(bootSessionID: UUID?, date: Date, continuousSeconds: Double, awakeSeconds: Double) {
+        self.bootSessionID = bootSessionID
+        self.date = date
+        self.continuousSeconds = continuousSeconds
+        self.awakeSeconds = awakeSeconds
+    }
+
+    func restSeconds(since earlier: SystemPowerTime?, legacyActivity: Date?) -> Double {
+        if let earlier {
+            if let bootSessionID, let earlierBoot = earlier.bootSessionID, bootSessionID != earlierBoot {
+                return max(0, date.timeIntervalSince(earlier.date) - continuousSeconds)
+            }
+            let awake = awakeSeconds - earlier.awakeSeconds
+            let sleep = continuousSeconds - earlier.continuousSeconds - awake
+            return awake >= 0 && sleep > 0.05 ? sleep : 0
+        }
+        guard bootSessionID != nil, let legacyActivity else { return 0 }
+        return max(0, date.timeIntervalSince(legacyActivity) - continuousSeconds)
     }
 }
 
@@ -152,11 +182,14 @@ public struct ActivitySample {
     /// False for a failed status/input query: unknown time is neither work nor rest.
     public var inactivityConfirmed: Bool
     public var foregroundApplication: ForegroundApplication?
+    public var powerTime: SystemPowerTime?
     public init(date: Date, monotonic: Double, idleSeconds: Double, available: Bool = true,
-                foregroundApplication: ForegroundApplication? = nil, inactivityConfirmed: Bool = true) {
+                foregroundApplication: ForegroundApplication? = nil, inactivityConfirmed: Bool = true,
+                powerTime: SystemPowerTime? = nil) {
         self.date = date; self.monotonic = monotonic; self.idleSeconds = idleSeconds
         self.available = available; self.foregroundApplication = foregroundApplication
         self.inactivityConfirmed = inactivityConfirmed
+        self.powerTime = powerTime
     }
 }
 

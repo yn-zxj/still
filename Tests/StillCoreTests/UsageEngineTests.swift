@@ -452,6 +452,113 @@ struct UsageEngineTests {
         #expect(engine.fatiguePercent == 50)
         #expect(engine.breaks.isEmpty)
     }
+
+    @Test func powerOffRecoversFrom75PercentIncludingLegacyCheckpoints() throws {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
+        let firstBoot = UUID(), secondBoot = UUID()
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 44)
+        var beforeShutdown = sample(45)
+        beforeShutdown.powerTime = SystemPowerTime(bootSessionID: firstBoot, date: beforeShutdown.date,
+                                                   continuousSeconds: 4_000, awakeSeconds: 3_000)
+        engine.tick(beforeShutdown)
+        #expect(engine.fatiguePercent == 75)
+
+        for legacy in [false, true] {
+            var checkpoint = engine.checkpoint
+            if legacy { checkpoint.powerTime = nil }
+            let saved = try JSONDecoder().decode(EngineCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+            for (poweredOff, expected) in [(15.0, 50), (28_800.0, 0)] {
+                var restored = UsageEngine(settings: settings, segments: engine.segments, checkpoint: saved)
+                let startupUptime = 60.0
+                var afterStartup = sample(45 + poweredOff + startupUptime)
+                afterStartup.monotonic = startupUptime
+                afterStartup.powerTime = SystemPowerTime(bootSessionID: secondBoot, date: afterStartup.date,
+                                                         continuousSeconds: startupUptime, awakeSeconds: startupUptime)
+                restored.tick(afterStartup)
+                #expect(restored.fatiguePercent == expected)
+                #expect(restored.roundSeconds == (expected == 0 ? 0 : 45))
+                #expect(restored.segments == engine.segments)
+                #expect(restored.breaks.isEmpty)
+                #expect(restored.reminderSerial == 0)
+            }
+        }
+    }
+
+    @Test func relaunchOnSameBootOnlyRecoversTimeAsleep() {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
+        let boot = UUID()
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 44)
+        var last = sample(45)
+        last.powerTime = SystemPowerTime(bootSessionID: boot, date: last.date,
+                                         continuousSeconds: 100, awakeSeconds: 90)
+        engine.tick(last)
+
+        for (sleep, expected) in [(0.0, 75), (15.0, 50)] {
+            var restored = UsageEngine(settings: settings, segments: engine.segments, checkpoint: engine.checkpoint)
+            var reopened = sample(3_645)
+            reopened.powerTime = SystemPowerTime(bootSessionID: boot, date: reopened.date,
+                                                 continuousSeconds: 3_700, awakeSeconds: 3_690 - sleep)
+            restored.tick(reopened)
+            #expect(restored.fatiguePercent == expected)
+            #expect(restored.segments == engine.segments)
+            #expect(restored.breaks.isEmpty)
+        }
+    }
+
+    @Test func sleepRecoversOnceWithOrWithoutNotificationAndAfterClockChange() {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
+        let boot = UUID()
+        for notified in [false, true] {
+            for clockChange in [0.0, 3_600] {
+                var engine = UsageEngine(settings: settings)
+                advance(&engine, from: 0, to: 45)
+                var beforeSleep = sample(45, available: !notified)
+                beforeSleep.powerTime = SystemPowerTime(bootSessionID: boot, date: beforeSleep.date,
+                                                        continuousSeconds: 100, awakeSeconds: 90)
+                engine.tick(beforeSleep)
+                var wake = sample(57, wallOffset: clockChange)
+                wake.powerTime = SystemPowerTime(bootSessionID: boot, date: wake.date,
+                                                 continuousSeconds: 112, awakeSeconds: 90)
+                engine.tick(wake)
+                #expect(engine.fatiguePercent == 55)
+                #expect(engine.roundSeconds == 45)
+                engine.tick(wake)
+                #expect(engine.fatiguePercent == 55)
+                var laterWake = sample(117, wallOffset: clockChange)
+                laterWake.powerTime = SystemPowerTime(bootSessionID: boot, date: laterWake.date,
+                                                      continuousSeconds: 172, awakeSeconds: 90)
+                engine.tick(laterWake)
+                #expect(engine.fatiguePercent == 0)
+                #expect(engine.roundSeconds == 0)
+                #expect(engine.segments.reduce(0) { $0 + $1.seconds } == 45)
+                #expect(engine.breaks.isEmpty)
+            }
+        }
+    }
+
+    @Test func sleepDuringGuidedRestRecoversFatigueWithoutAdvancingCourse() {
+        var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
+        let boot = UUID()
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 45)
+        var beforeSleep = sample(45)
+        beforeSleep.powerTime = SystemPowerTime(bootSessionID: boot, date: beforeSleep.date,
+                                                continuousSeconds: 100, awakeSeconds: 90)
+        engine.startGuidedRest(beforeSleep, duration: 120)
+        var wake = sample(105)
+        wake.powerTime = SystemPowerTime(bootSessionID: boot, date: wake.date,
+                                         continuousSeconds: 160, awakeSeconds: 90)
+        engine.tick(wake)
+        #expect(engine.fatiguePercent == 0)
+        engine.updateGuidedRest(elapsed: 1, completed: false, sample: wake)
+        #expect(engine.fatiguePercent == 0)
+        #expect(engine.restRemaining == 119)
+        #expect(engine.breaks.last?.outcome == .inProgress)
+        #expect(engine.completionSerial == 0)
+    }
+
     @Test func screenOffRecoveryPersistsAcrossRelaunchWithoutInventingUsageOrBreaks() throws {
         var settings = MonitorSettings(); settings.workMinutes = 1; settings.restMinutes = 1
         var engine = UsageEngine(settings: settings)

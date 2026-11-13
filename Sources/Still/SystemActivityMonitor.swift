@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 import StillCore
 
@@ -12,8 +13,7 @@ final class SystemActivityMonitor: ObservableObject {
     @Published private(set) var signalSnapshot = ActivitySignalSnapshot()
     private let keyboard = KeyboardActivityListener()
     private var permissionCheckedAt: Double = -.infinity
-    private let clock = ContinuousClock()
-    private let origin = ContinuousClock().now
+    private let bootSessionID = SystemActivityMonitor.readBootSessionID()
     private var observers: [NSObjectProtocol] = []
     private var suspendedReasons = Set<String>()
     var onChange: (() -> Void)?
@@ -50,8 +50,11 @@ final class SystemActivityMonitor: ObservableObject {
     }
 
     func sample(includeForegroundApplication: Bool = false, allowAuxiliaryDetection: Bool = true) -> ActivitySample {
-        let elapsed = origin.duration(to: clock.now).components
-        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        let seconds = Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1e9
+        let awakeSeconds = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
+        let date = Date()
+        let powerTime = SystemPowerTime(bootSessionID: bootSessionID, date: date,
+                                        continuousSeconds: seconds, awakeSeconds: awakeSeconds)
         // Query keyboard, pointer and scrolling separately. Do not let unrelated
         // event classes make a stationary computer appear continuously active.
         let types: [CGEventType] = [.keyDown, .keyUp, .flagsChanged, .mouseMoved,
@@ -79,7 +82,7 @@ final class SystemActivityMonitor: ObservableObject {
         let idle = InputActivityTiming.latest([systemIdle, keyboardIdle, playbackIdle, processIdle].compactMap { $0 })
         let foreground = includeForegroundApplication ? frontmost.flatMap(Self.foregroundApplication) : nil
         signalSnapshot = ActivitySignalSnapshot(
-            date: Date(),
+            date: date,
             available: available,
             inactivityConfirmed: state == .inactive,
             systemIdleSeconds: systemIdle,
@@ -88,9 +91,17 @@ final class SystemActivityMonitor: ObservableObject {
             foregroundProcessIdleSeconds: processIdle,
             foregroundBundleID: frontmost?.bundleIdentifier
         )
-        return ActivitySample(date: Date(), monotonic: seconds, idleSeconds: idle ?? 0,
+        return ActivitySample(date: date, monotonic: seconds, idleSeconds: idle ?? 0,
             available: state == .available && idle != nil, foregroundApplication: foreground,
-            inactivityConfirmed: state == .inactive)
+            inactivityConfirmed: state == .inactive, powerTime: powerTime)
+    }
+
+    private static func readBootSessionID() -> UUID? {
+        var buffer = [CChar](repeating: 0, count: 64)
+        var size = buffer.count
+        guard sysctlbyname("kern.bootsessionuuid", &buffer, &size, nil, 0) == 0,
+              size > 0, size <= buffer.count, buffer[size - 1] == 0 else { return nil }
+        return UUID(uuidString: String(cString: buffer))
     }
 
     func requestKeyboardAuthorization() {

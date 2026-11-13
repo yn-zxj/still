@@ -25,7 +25,10 @@ public struct UsageEngine {
     private var observedSince: Double?
     private var recoveredIdleSeconds: Double = 0
     private var restStartFatigue: Double = 0
+    private var guidedRecovery: Double = 0
     private var unavailableSince: Date?
+    private var powerTime: SystemPowerTime?
+    private var legacyActivity: Date?
     public private(set) var guidedRest = false
 
     public init(settings: MonitorSettings = MonitorSettings(), segments: [UsageSegment] = [],
@@ -38,6 +41,12 @@ public struct UsageEngine {
         self.trackingPaused = checkpoint?.trackingPaused ?? false
         self.snoozeUntil = checkpoint?.snoozeUntil
         self.unavailableSince = checkpoint?.unavailableSince
+        self.powerTime = checkpoint?.powerTime
+        if checkpoint != nil, powerTime == nil {
+            legacyActivity = (self.segments.map(\.endedAt) +
+                              breaks.map { $0.endedAt ?? $0.startedAt } +
+                              [unavailableSince].compactMap { $0 }).max()
+        }
         fatigueWorkSeconds = max(0, checkpoint?.fatigueWorkSeconds ?? self.segments.filter { $0.roundID == self.roundID }.reduce(0) { $0 + $1.seconds })
         // An unobserved process gap never counts as completed rest or computer usage.
         for index in self.breaks.indices where self.breaks[index].outcome == .inProgress {
@@ -50,7 +59,10 @@ public struct UsageEngine {
     public var progress: Double { min(1, max(0, fatigueWorkSeconds / settings.workSeconds)) }
     public var fatiguePercent: Int { min(100, max(0, Int((progress * 100 + 0.0000001).rounded(.down)))) }
     public var workRemaining: Double { max(0, settings.workSeconds - fatigueWorkSeconds) }
-    public var checkpoint: EngineCheckpoint { .init(roundID: roundID, snoozeUntil: snoozeUntil, trackingPaused: trackingPaused, fatigueWorkSeconds: fatigueWorkSeconds, unavailableSince: unavailableSince) }
+    public var checkpoint: EngineCheckpoint {
+        .init(roundID: roundID, snoozeUntil: snoozeUntil, trackingPaused: trackingPaused,
+              fatigueWorkSeconds: fatigueWorkSeconds, unavailableSince: unavailableSince, powerTime: powerTime)
+    }
 
     /// Recover overlapping observations from development copies without counting a second twice.
     /// Retain obsolete IDs as zero-duration records so the repository can update them in place.
@@ -109,33 +121,28 @@ public struct UsageEngine {
     public mutating func tick(_ sample: ActivitySample) {
         now = sample.date
         defer { previous = sample }
+        let priorPowerTime = powerTime
+        let powerRest = sample.powerTime?.restSeconds(since: priorPowerTime, legacyActivity: legacyActivity) ?? 0
+        powerTime = sample.powerTime
+        legacyActivity = nil
         if snoozeDeadline == nil, let until = snoozeUntil {
             snoozeDeadline = sample.monotonic + max(0, until.timeIntervalSince(sample.date))
         }
-        if phase == .resting, guidedRest { return }
         if phase == .resting, let began = restStartedMonotonic {
+            if guidedRest {
+                let seconds = confirmedRestSeconds(sample, since: priorPowerTime, powerRest: powerRest)
+                guidedRecovery += seconds * settings.workSeconds / settings.restSeconds
+                recoverFatigue(seconds: seconds)
+                return
+            }
             let target = breaks.first(where: { $0.id == restingID })?.targetSeconds ?? settings.restSeconds
             restRemaining = max(0, target - max(0, sample.monotonic - began))
             fatigueWorkSeconds = restStartFatigue * restRemaining / target
             if restRemaining == 0 { finishRest(at: sample.date) }
             return
         }
-        // Only explicit screen/session unavailability is rest evidence.
-        // An arbitrary timer/process gap is still unknown and earns no recovery.
-        if !sample.available && !sample.inactivityConfirmed {
-            unavailableSince = nil
-        } else if let began = unavailableSince {
-            let elapsed = sample.date.timeIntervalSince(began)
-            let monotonicElapsed = previous.map { sample.monotonic - $0.monotonic }
-            let clockConsistent = monotonicElapsed.map { $0 >= 0 && abs($0 - elapsed) < 5 } ?? true
-            if elapsed.isFinite, elapsed > 0, clockConsistent, fatigueWorkSeconds > 0 {
-                fatigueWorkSeconds = max(0, min(settings.workSeconds, fatigueWorkSeconds) - elapsed * settings.workSeconds / settings.restSeconds)
-                if fatigueWorkSeconds == 0 { resetRound() }
-            }
-            unavailableSince = sample.available ? nil : sample.date
-        } else if !sample.available {
-            unavailableSince = sample.date
-        }
+        let restSeconds = confirmedRestSeconds(sample, since: priorPowerTime, powerRest: powerRest)
+        recoverFatigue(seconds: restSeconds)
         guard sample.available, !trackingPaused else {
             activeSegmentID = nil
             activeApplicationSegmentID = nil
@@ -146,7 +153,8 @@ public struct UsageEngine {
         }
         let elapsed = previous.map { sample.monotonic - $0.monotonic } ?? 0
         let wallElapsed = previous.map { sample.date.timeIntervalSince($0.date) } ?? 0
-        let usableInterval = previous?.available == true && elapsed >= 0 && elapsed <= 15 && abs(wallElapsed - elapsed) < 5
+        let usableInterval = previous?.available == true && powerRest == 0 &&
+            elapsed >= 0 && elapsed <= 15 && abs(wallElapsed - elapsed) < 5
         if !usableInterval {
             activeSegmentID = nil; activeApplicationSegmentID = nil
             observedSince = sample.monotonic; recoveredIdleSeconds = 0
@@ -193,6 +201,33 @@ public struct UsageEngine {
         }
     }
 
+    private mutating func confirmedRestSeconds(_ sample: ActivitySample, since priorPowerTime: SystemPowerTime?,
+                                               powerRest: Double) -> Double {
+        let began = unavailableSince
+        let unavailable = !sample.available && sample.inactivityConfirmed
+        unavailableSince = unavailable ? sample.date : nil
+        guard sample.available || unavailable, let began else { return powerRest }
+        let elapsed = sample.date.timeIntervalSince(began)
+        let monotonicElapsed: Double?
+        if let previous {
+            monotonicElapsed = sample.monotonic - previous.monotonic
+        } else if let current = sample.powerTime, let priorPowerTime {
+            guard current.bootSessionID == priorPowerTime.bootSessionID else { return powerRest }
+            monotonicElapsed = current.continuousSeconds - priorPowerTime.continuousSeconds
+        } else {
+            monotonicElapsed = nil
+        }
+        let clockConsistent = monotonicElapsed.map { $0 >= 0 && abs($0 - elapsed) < 5 } ?? true
+        return elapsed.isFinite && clockConsistent ? max(powerRest, elapsed) : powerRest
+    }
+
+    private mutating func recoverFatigue(seconds: Double) {
+        guard seconds.isFinite, seconds > 0, fatigueWorkSeconds > 0 else { return }
+        let recovery = seconds * settings.workSeconds / settings.restSeconds
+        fatigueWorkSeconds = max(0, min(settings.workSeconds, fatigueWorkSeconds) - recovery)
+        if fatigueWorkSeconds <= 0.000_001 { resetRound() }
+    }
+
     public mutating func startRest(_ sample: ActivitySample, duration: Double? = nil) {
         let wasResting = phase == .resting
         tick(sample)
@@ -203,6 +238,7 @@ public struct UsageEngine {
         let record = BreakRecord(startedAt: sample.date, targetSeconds: target, outcome: .inProgress, source: .manual)
         breaks.append(record); restingID = record.id; restStartedMonotonic = sample.monotonic
         restStartFatigue = min(settings.workSeconds, fatigueWorkSeconds)
+        guidedRecovery = 0
         restRemaining = target; phase = .resting
         snoozeDeadline = nil; snoozeUntil = nil
     }
@@ -218,7 +254,7 @@ public struct UsageEngine {
               let target = breaks.first(where: { $0.id == restingID })?.targetSeconds else { return }
         tick(sample)
         restRemaining = max(0, target - min(target, max(0, elapsed)))
-        fatigueWorkSeconds = restStartFatigue * restRemaining / target
+        fatigueWorkSeconds = max(0, restStartFatigue * restRemaining / target - guidedRecovery)
         if completed && elapsed >= target - min(1, target * 0.01) { finishRest(at: sample.date) }
     }
 
