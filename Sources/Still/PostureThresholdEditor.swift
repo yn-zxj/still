@@ -58,7 +58,71 @@ struct InlinePostureNumber: View {
     @StateObject private var edit = PostureNumberEditingState()
     @FocusState private var focused: Bool
 
+    private var fieldWidth: CGFloat { field.decimalPlaces == 2 ? 58 : 46 }
+
+    private var fillColor: Color {
+        if edit.invalid { return PostureSemanticColor.error.opacity(0.10) }
+        return Palette.accent.opacity(focused ? 0.10 : 0.05)
+    }
+
+    private var borderColor: Color {
+        if edit.invalid { return PostureSemanticColor.error }
+        return focused ? Palette.accent : Palette.line
+    }
+
+    private var borderWidth: CGFloat { (focused || edit.invalid) ? 1.5 : 1 }
+
+    private var accessibilityValueText: String {
+        if let message = edit.errorMessage {
+            return "\(edit.draft)，输入无效：\(message)"
+        }
+        return edit.draft
+    }
+
+    private var accessibilityHintText: String {
+        "有效范围 \(field.rangeDescription)，回车或移开焦点保存"
+    }
+
+    private var helpText: String {
+        if let message = edit.errorMessage { return message }
+        return "\(field.title)：\(field.rangeDescription)，回车或移开焦点保存"
+    }
+
+    private var fieldShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+    }
+
+    private func resetDraft(_ newValue: Double) {
+        edit.draft = field.formatted(newValue)
+        edit.errorMessage = nil
+        onValidationChange(field, nil)
+    }
+
     var body: some View {
+        styledField
+            .focused($focused)
+            .accessibilityLabel(field.title)
+            .accessibilityValue(accessibilityValueText)
+            .accessibilityHint(accessibilityHintText)
+            .help(helpText)
+            .onAppear { resetDraft(value) }
+            .onSubmit {
+                commit()
+                focused = false
+            }
+            .onExitCommand {
+                resetDraft(value)
+                focused = false
+            }
+            .onChange(of: focused) { isFocused in
+                if !isFocused { commit() }
+            }
+            .onChange(of: value) { updated in
+                resetDraft(updated)
+            }
+    }
+
+    private var styledField: some View {
         TextField("", text: $edit.draft)
             .textFieldStyle(.plain)
             .multilineTextAlignment(.center)
@@ -67,45 +131,10 @@ struct InlinePostureNumber: View {
             .foregroundStyle(Palette.ink)
             .tint(Palette.accent)
             .padding(.horizontal, 5)
-            .frame(width: field.decimalPlaces == 2 ? 58 : 46, height: 28)
-            .background(
-                (edit.invalid ? PostureSemanticColor.error.opacity(0.10) : Palette.accent.opacity(focused ? 0.10 : 0.05)),
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-            )
+            .frame(width: fieldWidth, height: 28)
+            .background(fillColor, in: fieldShape)
             .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(
-                        edit.invalid ? PostureSemanticColor.error : focused ? Palette.accent : Palette.line,
-                        lineWidth: focused || edit.invalid ? 1.5 : 1
-                    )
-            }
-            .focused($focused)
-            .accessibilityLabel(field.title)
-            .accessibilityValue(edit.errorMessage.map { "\(edit.draft)，输入无效：\($0)" } ?? edit.draft)
-            .accessibilityHint("有效范围 \(field.rangeDescription)，回车或移开焦点保存")
-            .help(edit.errorMessage ?? "\(field.title)：\(field.rangeDescription)，回车或移开焦点保存")
-            .onAppear {
-                edit.draft = field.formatted(value)
-                edit.errorMessage = nil
-                onValidationChange(field, nil)
-            }
-            .onSubmit {
-                commit()
-                focused = false
-            }
-            .onExitCommand {
-                edit.draft = field.formatted(value)
-                edit.errorMessage = nil
-                onValidationChange(field, nil)
-                focused = false
-            }
-            .onChange(of: focused) { isFocused in
-                if !isFocused { commit() }
-            }
-            .onChange(of: value) { updated in
-                edit.draft = field.formatted(updated)
-                edit.errorMessage = nil
-                onValidationChange(field, nil)
+                fieldShape.stroke(borderColor, lineWidth: borderWidth)
             }
     }
 

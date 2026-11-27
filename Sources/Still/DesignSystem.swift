@@ -480,29 +480,21 @@ private struct EdgeFadeMaskView: View {
     let fadeLength: CGFloat
 
     var body: some View {
+        let top: Double = Double(state.topProgress)
+        let bottom: Double = Double(state.bottomProgress)
         VStack(spacing: 0) {
-            if state.topProgress > 0 {
+            if top > 0 {
                 LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(1 - state.topProgress), location: 0),
-                        .init(color: .black.opacity(1 - state.topProgress * 0.68), location: 0.35),
-                        .init(color: .black.opacity(1 - state.topProgress * 0.24), location: 0.72),
-                        .init(color: .black, location: 1)
-                    ],
+                    stops: topStops(top),
                     startPoint: .top,
                     endPoint: .bottom
                 )
                 .frame(height: fadeLength)
             }
             Color.black
-            if state.bottomProgress > 0 {
+            if bottom > 0 {
                 LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black.opacity(1 - state.bottomProgress * 0.24), location: 0.28),
-                        .init(color: .black.opacity(1 - state.bottomProgress * 0.68), location: 0.65),
-                        .init(color: .black.opacity(1 - state.bottomProgress), location: 1)
-                    ],
+                    stops: bottomStops(bottom),
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -510,6 +502,30 @@ private struct EdgeFadeMaskView: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private func topStops(_ top: Double) -> [Gradient.Stop] {
+        let a: Double = 1.0 - top
+        let b: Double = 1.0 - top * 0.68
+        let c: Double = 1.0 - top * 0.24
+        return [
+            Gradient.Stop(color: Color.black.opacity(a), location: 0),
+            Gradient.Stop(color: Color.black.opacity(b), location: 0.35),
+            Gradient.Stop(color: Color.black.opacity(c), location: 0.72),
+            Gradient.Stop(color: Color.black, location: 1)
+        ]
+    }
+
+    private func bottomStops(_ bottom: Double) -> [Gradient.Stop] {
+        let a: Double = 1.0 - bottom * 0.24
+        let b: Double = 1.0 - bottom * 0.68
+        let c: Double = 1.0 - bottom
+        return [
+            Gradient.Stop(color: Color.black, location: 0),
+            Gradient.Stop(color: Color.black.opacity(a), location: 0.28),
+            Gradient.Stop(color: Color.black.opacity(b), location: 0.65),
+            Gradient.Stop(color: Color.black.opacity(c), location: 1)
+        ]
     }
 }
 
