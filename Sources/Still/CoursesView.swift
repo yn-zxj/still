@@ -20,12 +20,11 @@ struct CoursesView: View {
                 if let course = selected {
                     training(course).padding(.top, 38)
                 } else {
-                    ScrollView(showsIndicators: false) {
+                    EdgeFadeScrollView(fadeLength: 36, fadeThreshold: 24) {
                         catalog.padding(.top, 38).padding(.bottom, 24)
                     }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let error = library.error { Text(error).font(.system(size: 14)).foregroundStyle(.orange).padding(.vertical, 12) }
         }
         .padding(.horizontal, 32)
         .frame(maxWidth: 1040, maxHeight: .infinity)
@@ -67,13 +66,16 @@ struct CoursesView: View {
                     CourseCacheControls(cache: library.videoCache, player: player)
                 }
             }
+            if let error = library.error {
+                inlineErrorBanner(error) { library.error = nil }
+            }
             if player.active, let current = library.courses.first(where: { $0.id == player.courseID }) {
                 Button { open(current) } label: {
                     HStack(spacing: 12) {
                         LineIcon(systemName: "play", size: 18)
                         Text("返回跟练 · " + current.title).font(.system(size: 15, weight: .medium))
                         Spacer()
-                        Text(clockText(player.position)).font(.system(size: 14, design: .monospaced))
+                        Text(clockText(player.position)).font(.system(size: 14, design: .monospaced)).monospacedDigit()
                     }.foregroundStyle(Palette.accentDark).padding(18).background(Palette.lavender, in: RoundedRectangle(cornerRadius: 16))
                 }.buttonStyle(.plain)
             }
@@ -83,16 +85,36 @@ struct CoursesView: View {
                     Text("暂无课程").font(.system(size: 22, weight: .medium))
                     Text("添加本地视频、视频链接，或导入自己的课程 JSON。")
                         .font(.system(size: 15)).foregroundStyle(Palette.secondary)
-                }.frame(maxWidth: .infinity).padding(.vertical, 55).card()
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 12) {
+                        Button("添加课程") { editingCourse = nil; editorVisible = true }
+                            .buttonStyle(SettingsButtonStyle(prominent: true))
+                        Button("导入课程…") { library.chooseCatalog() }
+                            .buttonStyle(SettingsButtonStyle())
+                    }
+                    .disabled(library.importing || player.active)
+                    .padding(.top, 4)
+                }.frame(maxWidth: .infinity).padding(.vertical, 52).padding(.horizontal, 24).card()
             } else {
-                Text("全部课程 · \(library.courses.count)").font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.secondary)
+                Text("全部课程 · \(library.courses.count)")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Palette.secondary)
+                    .accessibilityAddTraits(.isHeader)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20, alignment: .top)], alignment: .leading, spacing: 24) {
                     ForEach(library.courses) { course in
-                        CourseCoverCard(course: course, remoteImages: library.remoteThumbnails, reduceMotion: reduceMotion || !model.settings.motionEnabled) { open(course) }
-                            .disabled(player.active && player.courseID != course.id)
+                        CourseCoverCard(
+                            course: course,
+                            remoteImages: library.remoteThumbnails,
+                            reduceMotion: reduceMotion || !model.settings.motionEnabled,
+                            openDisabled: player.active && player.courseID != course.id,
+                            manageDisabled: player.active || library.importing,
+                            open: { open(course) },
+                            onEdit: { editingCourse = course; editorVisible = true },
+                            onRemove: { removingCourse = course }
+                        )
                             .contextMenu {
                                 Button("编辑课程") { editingCourse = course; editorVisible = true }.disabled(player.active || library.importing)
-                                Button("移除课程", role: .destructive) { removingCourse = course }
+                                Button("移除课程", role: .destructive) { removingCourse = course }.disabled(player.active || library.importing)
                             }
                     }
                 }
@@ -110,23 +132,28 @@ struct CoursesView: View {
                     .buttonStyle(.plain).foregroundStyle(Palette.accentDark)
                 Rectangle().fill(Palette.line).frame(width: 1, height: 26)
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(course.title).font(.system(size: 25, weight: .semibold, design: .rounded))
+                    Text(course.title)
+                        .font(.system(size: 25, weight: .semibold, design: .rounded))
+                        .accessibilityAddTraits(.isHeader)
                     metadata(course).font(.system(size: 14)).foregroundStyle(Palette.secondary)
                 }
                 Spacer(minLength: 0)
                 Button("编辑课程") { editingCourse = course; editorVisible = true }
                     .buttonStyle(SettingsButtonStyle()).disabled(player.active || library.importing)
             }
+            if let error = library.error {
+                inlineErrorBanner(error) { library.error = nil }
+            }
             HStack(alignment: .top, spacing: 24) {
                 if !course.actions.isEmpty { actionRail(course).frame(width: 222).padding(.bottom, 24) }
-                ScrollView(showsIndicators: false) {
+                EdgeFadeScrollView(fadeLength: 32, fadeThreshold: 22) {
                 VStack(alignment: .leading, spacing: 26) {
                     if let webpage = course.media?.webpage {
                         WebCourseView(url: webpage.url, playbackURL: course.media?.webPlaybackURL).id(course.id)
                     } else { video(course) }
                     VStack(alignment: .leading, spacing: 22) {
                         if !course.description.isEmpty {
-                            Text("关于这节课").font(.system(size: 19, weight: .semibold))
+                            Text("关于这节课").font(.system(size: 19, weight: .semibold)).accessibilityAddTraits(.isHeader)
                             Text(course.description).font(.system(size: 15)).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
                         }
                         info("练习准备", items: course.preparation)
@@ -151,14 +178,14 @@ struct CoursesView: View {
     private func actionRail(_ course: Course) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("动作安排").font(.system(size: 18, weight: .semibold))
+                Text("动作安排").font(.system(size: 18, weight: .semibold)).accessibilityAddTraits(.isHeader)
                 Spacer()
                 if !course.actions.isEmpty { Text("\(course.actions.count) 个").font(.system(size: 13)).foregroundStyle(Palette.secondary) }
             }.padding(.horizontal, 4)
             if course.actions.isEmpty {
                 Text("来源未提供动作拆分，可直接播放课程").font(.system(size: 14)).foregroundStyle(Palette.secondary).lineSpacing(5).padding(16)
             } else {
-                ScrollView(showsIndicators: false) {
+                EdgeFadeScrollView(fadeLength: 26, fadeThreshold: 18) {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(Array(course.actions.enumerated()), id: \.element.id) { index, action in
                             if index == 0 || course.actions[index - 1].phase != action.phase {
@@ -204,7 +231,7 @@ struct CoursesView: View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
                 ZStack {
-                    Color.black
+                    Color(hex: 0x181822)
                     if library.mediaURL(for: course) != nil {
                         if player.loading {
                             CourseVideoPoster(resource: course.coverURL, remoteImages: library.remoteThumbnails)
@@ -221,10 +248,35 @@ struct CoursesView: View {
                         }
                     } else {
                         VStack(spacing: 12) {
-                            LineIcon(systemName: "book-open", size: 35).foregroundStyle(Palette.accent.opacity(0.7))
-                            Text("先看看动作与准备事项").font(.system(size: 17, weight: .medium))
-                            Text("这门课程的视频尚未导入").font(.system(size: 14)).foregroundStyle(Palette.secondary)
+                            LineIcon(systemName: "book-open", size: 26)
+                                .foregroundStyle(Color.white.opacity(0.92))
+                                .frame(width: 54, height: 54)
+                                .background(Color.white.opacity(0.12), in: Circle())
+                            Text("这门课程尚未添加视频")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Color.white)
+                            Text("可以先看下方动作与准备事项，或编辑课程补充本地视频或链接。")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.white.opacity(0.82))
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 360)
+                            Button {
+                                editingCourse = course
+                                editorVisible = true
+                            } label: {
+                                Text("添加视频或链接")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Color.white)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(Color.white.opacity(0.16), in: Capsule())
+                                    .overlay(Capsule().stroke(Color.white.opacity(0.32), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(player.active || library.importing)
+                            .padding(.top, 4)
                         }
+                        .padding(24)
                     }
                 }
             }.aspectRatio(player.videoAspectRatio, contentMode: .fit).clipped()
@@ -238,7 +290,7 @@ struct CoursesView: View {
                         if player.active { Button("结束") { player.stop() }.buttonStyle(.plain).font(.system(size: 14)).foregroundStyle(Palette.secondary) }
                         Spacer(minLength: 0)
                         Text(player.finished ? "本次跟练已完成" : "\(clockText(player.position)) / \(clockText(player.duration))")
-                            .font(.system(size: 13, design: .monospaced)).foregroundStyle(Palette.secondary)
+                            .font(.system(size: 13, design: .monospaced)).monospacedDigit().foregroundStyle(Palette.secondary)
                     }
                     HStack(spacing: 10) {
                         if player.videoAvailableOffline {
@@ -254,9 +306,17 @@ struct CoursesView: View {
                         Spacer(minLength: 0)
                     }.font(.system(size: 12))
                     if let error = player.error {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(error).font(.system(size: 13)).foregroundStyle(.orange)
-                            HStack {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top, spacing: 8) {
+                                LineIcon(systemName: "triangle-alert", size: 15)
+                                    .foregroundStyle(Color.orange)
+                                    .padding(.top, 1)
+                                Text(error)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Palette.ink)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            HStack(spacing: 10) {
                                 Button("重新加载") { player.load(course, url: library.mediaURL(for: course)) }
                                 if let page = course.media?.originalPage?.url {
                                     Button("打开原网页") { NSWorkspace.shared.open(page) }
@@ -265,12 +325,41 @@ struct CoursesView: View {
                                     Button("缓存后再播放") { player.playFromCache(course) }.disabled(player.caching)
                                 }
                             }.font(.system(size: 13))
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.orange.opacity(0.38), lineWidth: 1))
                     }
                 }.padding(18).background(Palette.lavender.opacity(0.45))
             }
         }.clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.line, lineWidth: 1))
+    }
+
+    private func inlineErrorBanner(_ message: String, dismiss: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            LineIcon(systemName: "triangle-alert", size: 15)
+                .foregroundStyle(Color.orange)
+                .padding(.top, 1)
+            Text(message)
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(action: dismiss) {
+                LineIcon(systemName: "x", size: 12)
+                    .foregroundStyle(Palette.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭错误提示")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.orange.opacity(0.38), lineWidth: 1))
     }
     @ViewBuilder private func info(_ title: String, items: [String]?, fallback: String? = nil) -> some View {
         if let items, !items.isEmpty {
@@ -287,18 +376,23 @@ struct CourseVideoPoster: View {
     let remoteImages: RemoteCourseImages
     @StateObject private var state = CourseImageState()
     var body: some View {
+        let displayed = state.image ?? resource.flatMap { remoteImages.cachedImage(for: $0) }
         GeometryReader { geometry in
             ZStack {
                 Palette.lavender
-                if let image = state.image {
+                if let image = displayed {
                     Image(nsImage: image).resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 }
                 Color.white.opacity(0.2)
             }
         }.task(id: resource) {
+            guard let resource else { state.image = nil; return }
+            if let cached = remoteImages.cachedImage(for: resource) {
+                state.image = cached
+                return
+            }
             state.image = nil
-            guard let resource else { return }
             let image = await remoteImages.image(for: resource)
             guard !Task.isCancelled else { return }
             state.image = image
@@ -311,17 +405,35 @@ private struct CourseCacheControls: View {
     @ObservedObject var player: CoursePlayer
     @StateObject private var state = CourseCacheControlState()
     var body: some View {
-        Menu {
-            Text("首次缓存，后续离线播放")
-            Button("清理视频缓存") {
-                do { player.unload(); try cache.clear(); state.error = nil }
-                catch { state.error = "缓存清理失败：" + error.localizedDescription }
-            }.disabled(cache.byteCount == 0 || player.active || player.loading)
-            if let error = state.error { Text(error) }
-        } label: {
-            Text("视频缓存 · " + (cache.byteCount == 0 ? "0 MB" : ByteCountFormatter.string(fromByteCount: cache.byteCount, countStyle: .file)))
-                .font(.system(size: 13)).foregroundStyle(Palette.secondary)
-        }.menuStyle(.borderlessButton).fixedSize()
+        VStack(alignment: .trailing, spacing: 6) {
+            Menu {
+                Text("首次缓存，后续离线播放")
+                Button("清理视频缓存") {
+                    do { player.unload(); try cache.clear(); state.error = nil }
+                    catch { state.error = "缓存清理失败：" + error.localizedDescription }
+                }.disabled(cache.byteCount == 0 || player.active || player.loading)
+            } label: {
+                Text("视频缓存 · " + (cache.byteCount == 0 ? "0 MB" : ByteCountFormatter.string(fromByteCount: cache.byteCount, countStyle: .file)))
+                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            }.menuStyle(.borderlessButton).fixedSize()
+            if let error = state.error {
+                HStack(spacing: 6) {
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(2)
+                    Button { state.error = nil } label: {
+                        LineIcon(systemName: "x", size: 11).foregroundStyle(Palette.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭缓存错误提示")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.orange.opacity(0.38), lineWidth: 1))
+            }
+        }
     }
 }
 private final class CourseCacheControlState: ObservableObject { @Published var error: String? }
@@ -338,49 +450,124 @@ private struct CourseCoverCard: View {
     let course: Course
     let remoteImages: RemoteCourseImages
     let reduceMotion: Bool
+    let openDisabled: Bool
+    let manageDisabled: Bool
     let open: () -> Void
+    let onEdit: () -> Void
+    let onRemove: () -> Void
     @StateObject private var state = CourseImageState()
+
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 0) {
-                GeometryReader { geometry in
-                    ZStack(alignment: .bottomLeading) {
-                        Palette.lavender
-                        if let image = state.image {
-                            Image(nsImage: image).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped()
-                        } else {
-                            LineIcon(systemName: course.title.contains("眼") ? "eye" : "leaf", size: 42).foregroundStyle(Palette.accent.opacity(0.45)).frame(maxWidth: .infinity, maxHeight: .infinity)
+        let displayedImage = state.image ?? course.coverURL.flatMap { remoteImages.cachedImage(for: $0) }
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 0) {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .bottomLeading) {
+                            Palette.lavender
+                            if let image = displayedImage {
+                                Image(nsImage: image).resizable().scaledToFill()
+                                    .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                            } else {
+                                LineIcon(systemName: course.title.contains("眼") ? "eye" : "leaf", size: 42)
+                                    .foregroundStyle(Palette.accent.opacity(0.45))
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                            LinearGradient(colors: [.clear, .black.opacity(0.46)], startPoint: .center, endPoint: .bottom)
+                            Text("\(course.displayDurationMinutes) 分钟")
+                                .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 11).padding(.vertical, 6)
+                                .background(Color.black.opacity(0.62), in: Capsule())
+                                .padding(14)
+                            if state.failed {
+                                Text("封面未载入")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 9).padding(.vertical, 5)
+                                    .background(Color.black.opacity(0.68), in: Capsule())
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            }
                         }
-                        LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .center, endPoint: .bottom)
-                        Text("\(course.displayDurationMinutes) 分钟").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                            .padding(.horizontal, 11).padding(.vertical, 6).background(.black.opacity(0.18), in: Capsule()).padding(14)
-                        if state.failed { Text("封面未载入").font(.system(size: 11)).foregroundStyle(.white).padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing) }
-                    }
-                }.aspectRatio(4 / 3, contentMode: .fit).clipped()
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(course.title).font(.system(size: 18, weight: .semibold, design: .rounded)).lineLimit(2).multilineTextAlignment(.leading).frame(height: 48, alignment: .topLeading)
-                    HStack {
-                        Text(course.difficulty).font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                        Spacer()
-                        HStack(spacing: 5) { Text("查看课程"); LineIcon(systemName: "play", size: 12) }.font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
-                    }
-                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface)
-            }.clipShape(RoundedRectangle(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(state.hovering ? Palette.accent.opacity(0.4) : Palette.line, lineWidth: 1))
-                .shadow(color: Palette.accent.opacity(state.hovering ? 0.12 : 0.025), radius: state.hovering ? 14 : 5, y: state.hovering ? 5 : 2)
-                .offset(y: state.hovering && !reduceMotion ? -3 : 0)
-                .contentShape(RoundedRectangle(cornerRadius: 20))
-        }.buttonStyle(.plain)
-            .onHover { state.hovering = $0 }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: state.hovering)
-            .accessibilityLabel("\(course.title)，\(course.displayDurationMinutes)分钟，\(course.difficulty)，查看课程")
-            .task(id: course.coverURL) {
-                state.image = nil; state.failed = false
-                guard let url = course.coverURL else { return }
-                let result = await remoteImages.image(for: url)
-                guard !Task.isCancelled else { return }
-                state.image = result; state.failed = result == nil
+                    }.aspectRatio(4 / 3, contentMode: .fit).clipped()
+                    Text(course.title)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(2).multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                        .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 10)
+                        .background(Palette.surface)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(openDisabled)
+            .accessibilityLabel("\(course.title)，\(course.displayDurationMinutes)分钟\(course.difficulty.isEmpty ? "" : "，\(course.difficulty)")，查看课程")
+
+            HStack(spacing: 8) {
+                if !course.difficulty.isEmpty {
+                    Text(course.difficulty)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Menu {
+                    Button("编辑课程", action: onEdit).disabled(manageDisabled)
+                    Button("移除课程", role: .destructive, action: onRemove).disabled(manageDisabled)
+                } label: {
+                    Text("管理")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Palette.background.opacity(0.9), in: Capsule())
+                        .overlay(Capsule().stroke(Palette.line, lineWidth: 1))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(manageDisabled)
+                .help("编辑或移除课程")
+                .accessibilityLabel("管理课程：\(course.title)")
+
+                Button(action: open) {
+                    HStack(spacing: 5) {
+                        Text("查看课程")
+                        LineIcon(systemName: "play", size: 12)
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Palette.accentDark)
+                }
+                .buttonStyle(.plain)
+                .disabled(openDisabled)
+                .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 18).padding(.bottom, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.surface)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(state.hovering ? Palette.accent.opacity(0.45) : Palette.line, lineWidth: 1))
+        .shadow(color: Palette.accent.opacity(state.hovering ? 0.12 : 0.025), radius: state.hovering ? 14 : 5, y: state.hovering ? 5 : 2)
+        .offset(y: state.hovering && !reduceMotion ? -3 : 0)
+        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .opacity(openDisabled ? 0.65 : 1)
+        .onHover { state.hovering = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: state.hovering)
+        .task(id: course.coverURL) {
+            state.failed = false
+            guard let url = course.coverURL else { state.image = nil; return }
+            if let cached = remoteImages.cachedImage(for: url) {
+                state.image = cached
+                return
+            }
+            state.image = nil
+            let result = await remoteImages.image(for: url)
+            guard !Task.isCancelled else { return }
+            state.image = result; state.failed = result == nil
+        }
     }
 }
 
@@ -390,8 +577,9 @@ struct CourseActionThumbnail: View {
     let remoteImages: RemoteCourseImages
     @StateObject private var state = CourseImageState()
     var body: some View {
+        let displayed = localImage ?? state.image ?? action.thumbnailURL.flatMap { remoteImages.cachedImage(for: $0) }
         Group {
-            if let image = localImage ?? state.image {
+            if let image = displayed {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
             } else if action.thumbnailURL != nil && !state.failed {
                 ProgressView().controlSize(.small)
@@ -405,8 +593,13 @@ struct CourseActionThumbnail: View {
                 }.foregroundStyle(Palette.secondary)
             }
         }.task(id: "\(action.thumbnailURL?.url.absoluteString ?? "")|\(state.retry)") {
-            state.image = nil; state.failed = false
-            guard localImage == nil, let url = action.thumbnailURL else { return }
+            state.failed = false
+            guard localImage == nil, let url = action.thumbnailURL else { state.image = nil; return }
+            if let cached = remoteImages.cachedImage(for: url) {
+                state.image = cached
+                return
+            }
+            state.image = nil
             let result = await remoteImages.image(for: url)
             guard !Task.isCancelled else { return }
             state.image = result; state.failed = result == nil; state.failure = remoteImages.failure(for: url)

@@ -19,15 +19,34 @@ enum Page: String, CaseIterable {
     }
 }
 
+/// High-frequency (1s) heartbeat observed only by views displaying live countdown/fatigue.
+@MainActor
+final class LiveEngineClock: ObservableObject {
+    @Published private(set) var tick: UInt64 = 0
+    func bump() { tick &+= 1 }
+}
+
+/// Low-frequency statistics revision observed by Insights/History views to avoid 1s full-chart redraws.
+@MainActor
+final class StatsClock: ObservableObject {
+    @Published private(set) var revision: UInt64 = 0
+    func bump() { revision &+= 1 }
+}
+
 @MainActor
 final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     @Published var page: Page = .today
     @Published var historyDays = 7
     @Published var updatesRequest = 0
-    @Published private(set) var engine: UsageEngine
+    private(set) var engine: UsageEngine
+    let liveClock = LiveEngineClock()
+    let statsClock = StatsClock()
+    @Published private(set) var trackingPaused = false
+    @Published private(set) var applicationSegmentCount = 0
     @Published var settings: MonitorSettings {
         didSet {
             engine.updateSettings(settings)
+            notifyEngineChanged(forceStats: true)
             if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "settings.v1") }
             if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
             if !settings.remindersEnabled || oldValue.reminderStyle != settings.reminderStyle { clearDueNotification() }
@@ -84,6 +103,11 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
     private var tickCount = 0
     private var previousReminder = 0
     private var previousCompletion = 0
+    private var lastStatsPhase: EnginePhase = .working
+    private var lastStatsSegmentsCount = 0
+    private var lastStatsApplicationsCount = 0
+    private var lastStatsBreaksCount = 0
+    private var lastStatsDay = Date.distantPast
     var showReminder: (() -> Void)?
     var showCompletion: (() -> Void)?
     var showRest: (() -> Void)?
@@ -150,6 +174,13 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         engine = UsageEngine(settings: initial, segments: savedSegments,
                              applicationSegments: savedApplications, breaks: savedBreaks,
                              checkpoint: checkpoint)
+        trackingPaused = engine.trackingPaused
+        applicationSegmentCount = engine.applicationSegments.count
+        lastStatsPhase = engine.phase
+        lastStatsSegmentsCount = engine.segments.count
+        lastStatsApplicationsCount = engine.applicationSegments.count
+        lastStatsBreaksCount = engine.breaks.count
+        lastStatsDay = Calendar.current.startOfDay(for: engine.now)
         let earliest = (savedSegments.map(\.startedAt) + savedBreaks.map(\.startedAt)).min()
         let persistedStart = defaults.object(forKey: "usage.recordingStartedAt") as? Date
         recordingStartedAt = min(persistedStart ?? earliest ?? Date(), earliest ?? persistedStart ?? Date())
@@ -162,16 +193,22 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
             guard let self else { return }
             self.clearDueNotification(); if !self.inReminderTraining { self.hideAllReminders?() }
             self.engine.startGuidedRest(self.currentSample(), duration: duration)
+            self.previousCompletion = self.engine.completionSerial
+            self.notifyEngineChanged(forceStats: true)
             self.save(); self.refreshMenu?()
         }
         coursePlayer.onProgress = { [weak self] elapsed, completed in
             guard let self else { return }
             self.engine.updateGuidedRest(elapsed: elapsed, completed: completed, sample: self.currentSample())
-            if completed { self.previousCompletion = self.engine.completionSerial; self.save() }
+            self.notifyEngineChanged(forceStats: completed)
+            if completed { self.previousCompletion = self.engine.completionSerial; self.save(); self.refreshMenu?() }
         }
         coursePlayer.onStop = { [weak self] in
             guard let self, self.engine.guidedRest else { return }
-            self.engine.interruptRest(self.currentSample()); self.save(); self.refreshMenu?()
+            self.engine.stopGuidedRest(self.currentSample())
+            self.previousCompletion = self.engine.completionSerial
+            self.notifyEngineChanged(forceStats: true)
+            self.save(); self.refreshMenu?()
         }
         if ProcessInfo.processInfo.arguments.contains("--courses") { page = .courses }
 
@@ -246,7 +283,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
         if engine.completionSerial != previousCompletion {
             previousCompletion = engine.completionSerial
-            showCompletion?()
+            if !inReminderTraining { showCompletion?() }
             if settings.soundEnabled && settings.reminderStyle != .notification { NSSound(named: "Glass")?.play() }
             save()
         }
@@ -256,8 +293,34 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
         refreshMenu?()
         tickCount += 1
+        notifyEngineChanged(forceStats: tickCount % 10 == 0)
         if tickCount % 3600 == 0 && settings.automaticUpdateChecks && !isUITest { updater.checkAutomaticallyIfNeeded() }
         if tickCount % 20 == 0 { save() }
+    }
+
+    private func notifyEngineChanged(forceStats: Bool) {
+        if trackingPaused != engine.trackingPaused {
+            trackingPaused = engine.trackingPaused
+        }
+        let appCount = engine.applicationSegments.count
+        if applicationSegmentCount != appCount {
+            applicationSegmentCount = appCount
+        }
+        liveClock.bump()
+        let dayStart = Calendar.current.startOfDay(for: engine.now)
+        let structuralChange = engine.phase != lastStatsPhase ||
+            engine.segments.count != lastStatsSegmentsCount ||
+            appCount != lastStatsApplicationsCount ||
+            engine.breaks.count != lastStatsBreaksCount ||
+            dayStart != lastStatsDay
+        if forceStats || structuralChange {
+            lastStatsPhase = engine.phase
+            lastStatsSegmentsCount = engine.segments.count
+            lastStatsApplicationsCount = appCount
+            lastStatsBreaksCount = engine.breaks.count
+            lastStatsDay = dayStart
+            statsClock.bump()
+        }
     }
 
     func startRest() {
@@ -265,6 +328,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         clearDueNotification()
         let short = isUITest && ProcessInfo.processInfo.arguments.contains("--short-rest")
         engine.startRest(currentSample(), duration: short ? 5 : nil)
+        notifyEngineChanged(forceStats: true)
         if engine.phase == .resting { showRest?() } else { showCompletion?() }
         save(); refreshMenu?()
     }
@@ -301,9 +365,9 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     func openCourses() { guard settings.coursesEnabled else { return }; hideAllReminders?(); page = .courses; showDashboard?() }
 
-    func endRest() { if coursePlayer.active { coursePlayer.stop(); return }; engine.interruptRest(currentSample()); hideReminder?(); save(); refreshMenu?() }
-    func snooze(skipped: Bool = false) { if coursePlayer.active { coursePlayer.stop() }; clearDueNotification(); engine.snooze(currentSample(), skipped: skipped); hideReminder?(); save(); refreshMenu?() }
-    func toggleTracking() { engine.setTrackingPaused(!engine.trackingPaused, sample: currentSample()); save(); refreshMenu?() }
+    func endRest() { if coursePlayer.active { coursePlayer.stop(); return }; engine.interruptRest(currentSample()); notifyEngineChanged(forceStats: true); hideReminder?(); save(); refreshMenu?() }
+    func snooze(skipped: Bool = false) { if coursePlayer.active { coursePlayer.stop() }; clearDueNotification(); engine.snooze(currentSample(), skipped: skipped); notifyEngineChanged(forceStats: true); hideReminder?(); save(); refreshMenu?() }
+    func toggleTracking() { engine.setTrackingPaused(!engine.trackingPaused, sample: currentSample()); notifyEngineChanged(forceStats: true); save(); refreshMenu?() }
     func toggleReminders() {
         settings.remindersEnabled.toggle()
         if !settings.remindersEnabled && engine.phase != .resting { hideReminder?() }
@@ -345,6 +409,7 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     func clearApplicationHistory() {
         engine.clearApplicationSegments()
+        notifyEngineChanged(forceStats: true)
         save()
     }
 
@@ -402,13 +467,18 @@ final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelega
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] result in
             let status = result.authorizationStatus
             Task { @MainActor in
-                self?.notificationAuthorized = status == .authorized || status == .provisional
-                self?.notificationDenied = status == .denied
+                guard let self else { return }
+                let authorized = status == .authorized || status == .provisional
+                let denied = status == .denied
+                let text: String
                 switch status {
-                case .authorized, .provisional: self?.notificationStatus = "已允许"
-                case .denied: self?.notificationStatus = "已关闭，可前往系统设置开启"
-                default: self?.notificationStatus = "尚未启用"
+                case .authorized, .provisional: text = "已允许"
+                case .denied: text = "已关闭，可前往系统设置开启"
+                default: text = "尚未启用"
                 }
+                if self.notificationAuthorized != authorized { self.notificationAuthorized = authorized }
+                if self.notificationDenied != denied { self.notificationDenied = denied }
+                if self.notificationStatus != text { self.notificationStatus = text }
             }
         }
     }

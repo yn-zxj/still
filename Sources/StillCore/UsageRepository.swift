@@ -6,6 +6,10 @@ public final class UsageRepository {
     private var usageObjects: [UUID: NSManagedObject] = [:]
     private var applicationObjects: [UUID: NSManagedObject] = [:]
     private var breakObjects: [UUID: NSManagedObject] = [:]
+    private var savedUsage: [UUID: UsageSegment] = [:]
+    private var savedApplications: [UUID: ApplicationUsageSegment] = [:]
+    private var savedBreaks: [UUID: BreakRecord] = [:]
+    private var syncedFromStore = false
 
     public init(directory: URL? = nil, inMemory: Bool = false) throws {
         let model = NSManagedObjectModel()
@@ -65,8 +69,10 @@ public final class UsageRepository {
                           let end = item.value(forKey: "endedAt") as? Date,
                           let mode = TrackingMode(rawValue: item.value(forKey: "mode") as? String ?? "") else { return nil }
                     usageObjects[id] = item
-                    return UsageSegment(id: id, roundID: round, startedAt: start, endedAt: end,
-                                        seconds: item.value(forKey: "seconds") as? Double ?? 0, mode: mode)
+                    let segment = UsageSegment(id: id, roundID: round, startedAt: start, endedAt: end,
+                                               seconds: item.value(forKey: "seconds") as? Double ?? 0, mode: mode)
+                    savedUsage[id] = segment
+                    return segment
                 }.sorted { $0.startedAt < $1.startedAt }
                 let applications = try context.fetch(NSFetchRequest<NSManagedObject>(entityName: "ApplicationUsageSegment"))
                 result.applicationSegments = applications.compactMap { item in
@@ -77,13 +83,15 @@ public final class UsageRepository {
                         return nil
                     }
                     applicationObjects[id] = item
-                    return ApplicationUsageSegment(
+                    let segment = ApplicationUsageSegment(
                         id: id, startedAt: start, endedAt: end,
                         seconds: item.value(forKey: "seconds") as? Double ?? 0,
                         bundleID: item.value(forKey: "bundleID") as? String ?? "",
                         applicationName: item.value(forKey: "applicationName") as? String ?? "未知应用",
                         category: category
                     )
+                    savedApplications[id] = segment
+                    return segment
                 }.sorted { $0.startedAt < $1.startedAt }
                 let rests = try context.fetch(NSFetchRequest<NSManagedObject>(entityName: "BreakRecord"))
                 result.breaks = rests.compactMap { item in
@@ -95,8 +103,11 @@ public final class UsageRepository {
                     var record = BreakRecord(startedAt: start, endedAt: item.value(forKey: "endedAt") as? Date,
                                              targetSeconds: item.value(forKey: "targetSeconds") as? Double ?? 0,
                                              outcome: outcome, source: source)
-                    record.id = id; return record
+                    record.id = id
+                    savedBreaks[id] = record
+                    return record
                 }.sorted { $0.startedAt < $1.startedAt }
+                syncedFromStore = true
             } catch { failure = error }
         }
         if let failure { throw failure }
@@ -108,25 +119,33 @@ public final class UsageRepository {
         var failure: Error?
         container.viewContext.performAndWait {
             let context = container.viewContext
-            do {
-                try Self.deleteMissing(
-                    entityName: "ApplicationUsageSegment",
-                    keeping: Set(applicationSegments.map(\.id)),
-                    cachedObjects: &applicationObjects,
-                    in: context
-                )
-            } catch {
-                failure = error
-                return
+            let retainedAppIDs = Set(applicationSegments.map(\.id))
+            let needsAppDeletionCheck = !syncedFromStore || applicationObjects.keys.contains { !retainedAppIDs.contains($0) }
+            if needsAppDeletionCheck {
+                do {
+                    try Self.deleteMissing(
+                        entityName: "ApplicationUsageSegment",
+                        keeping: retainedAppIDs,
+                        cachedObjects: &applicationObjects,
+                        savedSnapshots: &savedApplications,
+                        in: context
+                    )
+                } catch {
+                    failure = error
+                    return
+                }
             }
-            for segment in segments {
+            var updatedUsage: [UsageSegment] = []
+            for segment in segments where savedUsage[segment.id] != segment {
                 let item = usageObjects[segment.id] ?? NSEntityDescription.insertNewObject(forEntityName: "UsageSegment", into: context)
                 item.setValue(segment.id, forKey: "id"); item.setValue(segment.roundID, forKey: "roundID")
                 item.setValue(segment.startedAt, forKey: "startedAt"); item.setValue(segment.endedAt, forKey: "endedAt")
                 item.setValue(segment.seconds, forKey: "seconds"); item.setValue(segment.mode.rawValue, forKey: "mode")
                 usageObjects[segment.id] = item
+                updatedUsage.append(segment)
             }
-            for segment in applicationSegments {
+            var updatedApplications: [ApplicationUsageSegment] = []
+            for segment in applicationSegments where savedApplications[segment.id] != segment {
                 let item = applicationObjects[segment.id] ?? NSEntityDescription.insertNewObject(forEntityName: "ApplicationUsageSegment", into: context)
                 item.setValue(segment.id, forKey: "id")
                 item.setValue(segment.startedAt, forKey: "startedAt")
@@ -136,15 +155,29 @@ public final class UsageRepository {
                 item.setValue(segment.applicationName, forKey: "applicationName")
                 item.setValue(segment.category.rawValue, forKey: "category")
                 applicationObjects[segment.id] = item
+                updatedApplications.append(segment)
             }
-            for record in breaks {
+            var updatedBreaks: [BreakRecord] = []
+            for record in breaks where savedBreaks[record.id] != record {
                 let item = breakObjects[record.id] ?? NSEntityDescription.insertNewObject(forEntityName: "BreakRecord", into: context)
                 item.setValue(record.id, forKey: "id"); item.setValue(record.startedAt, forKey: "startedAt")
                 item.setValue(record.endedAt, forKey: "endedAt"); item.setValue(record.targetSeconds, forKey: "targetSeconds")
                 item.setValue(record.outcome.rawValue, forKey: "outcome"); item.setValue(record.source.rawValue, forKey: "source")
                 breakObjects[record.id] = item
+                updatedBreaks.append(record)
             }
-            if context.hasChanges { do { try context.save() } catch { failure = error } }
+            if context.hasChanges {
+                do {
+                    try context.save()
+                } catch {
+                    failure = error
+                    return
+                }
+            }
+            for segment in updatedUsage { savedUsage[segment.id] = segment }
+            for segment in updatedApplications { savedApplications[segment.id] = segment }
+            for record in updatedBreaks { savedBreaks[record.id] = record }
+            syncedFromStore = true
         }
         if let failure { throw failure }
     }
@@ -153,6 +186,7 @@ public final class UsageRepository {
     /// absent from the in-memory model means the user removed it and it must disappear on relaunch.
     private static func deleteMissing(entityName: String, keeping retainedIDs: Set<UUID>,
                                       cachedObjects: inout [UUID: NSManagedObject],
+                                      savedSnapshots: inout [UUID: ApplicationUsageSegment],
                                       in context: NSManagedObjectContext) throws {
         let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
         let objects = try context.fetch(request)
@@ -160,6 +194,7 @@ public final class UsageRepository {
             guard let id = object.value(forKey: "id") as? UUID, !retainedIDs.contains(id) else { continue }
             context.delete(object)
             cachedObjects.removeValue(forKey: id)
+            savedSnapshots.removeValue(forKey: id)
         }
     }
 }

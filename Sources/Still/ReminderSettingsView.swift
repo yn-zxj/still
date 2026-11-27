@@ -10,26 +10,44 @@ struct ReminderSettingsView: View {
                 Spacer()
                 Toggle("开启提醒", isOn: $model.settings.remindersEnabled).toggleStyle(.switch).font(.system(size: 13))
             }
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 ForEach(ReminderStyle.allCases, id: \.self) { style in
+                    let isSelected = model.settings.reminderStyle == style
                     Button { model.settings.reminderStyle = style; model.reminderError = nil } label: {
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                LineIcon(systemName: icon(style), size: 21)
+                                LineIcon(systemName: icon(style), size: 20)
+                                    .foregroundStyle(isSelected ? Palette.accentDark : Palette.secondary)
                                 Spacer()
-                                if model.settings.reminderStyle == style {
-                                    LineIcon(systemName: "circle-check", size: 16)
-                                }
+                                LineIcon(systemName: isSelected ? "circle-check" : "circle", size: 16)
+                                    .foregroundStyle(isSelected ? Palette.accentDark : Palette.line)
                             }
-                            Text(style.title).font(.system(size: 14, weight: .medium))
+                            .accessibilityHidden(true)
+                            Text(style.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(isSelected ? Palette.accentDark : Palette.ink)
+                            Text(shortDescription(style))
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.secondary)
+                                .lineSpacing(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
                         }
-                        .foregroundStyle(model.settings.reminderStyle == style ? Palette.accentDark : Palette.secondary)
-                        .padding(18).frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
-                        .background(model.settings.reminderStyle == style ? Palette.lavender : Palette.background, in: RoundedRectangle(cornerRadius: 15))
-                        .overlay(RoundedRectangle(cornerRadius: 15).stroke(model.settings.reminderStyle == style ? Palette.accent.opacity(0.35) : Palette.line, lineWidth: 1))
-                    }.buttonStyle(.plain).accessibilityLabel(style.title).accessibilityAddTraits(model.settings.reminderStyle == style ? .isSelected : [])
+                        .padding(16)
+                        .frame(maxWidth: .infinity, minHeight: 112, maxHeight: .infinity, alignment: .topLeading)
+                        .background(isSelected ? Palette.lavender : Palette.background, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .stroke(isSelected ? Palette.selectionBorder : Palette.line, lineWidth: isSelected ? 1.5 : 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    }
+                    .buttonStyle(SelectableCardButtonStyle())
+                    .accessibilityLabel("\(style.title)，\(shortDescription(style))")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 25) {
                 Text("提醒内容").font(.system(size: 14, weight: .medium)).frame(width: 75, alignment: .leading)
                 TextField("喝杯水，起来走走吧", text: Binding(get: { model.settings.reminderMessage }, set: { model.settings.reminderMessage = String($0.prefix(100)) }))
@@ -45,26 +63,37 @@ struct ReminderSettingsView: View {
                     LineIcon(systemName: "bell", size: 16)
                     Text(model.notificationDenied ? "系统通知已关闭" : "需要允许系统通知").font(.system(size: 13))
                     Spacer()
-                    Button(model.notificationDenied ? "打开系统设置" : "允许通知") { model.enableNotifications() }.buttonStyle(.bordered)
+                    Button(model.notificationDenied ? "打开系统设置" : "允许通知") { model.enableNotifications() }
+                        .buttonStyle(SettingsButtonStyle())
                 }.foregroundStyle(Palette.secondary)
             }
             if let error = model.reminderError {
-                Text(error).font(.system(size: 13)).foregroundStyle(Color.orange)
+                Text(error).font(.system(size: 13)).foregroundStyle(Palette.warning)
             }
-            HStack {
+            HStack(alignment: .center, spacing: 16) {
                 Text(styleHint)
                     .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button { model.showPreview?() } label: { LineLabel("预览提醒", systemImage: "play") }.buttonStyle(SoftButtonStyle())
             }
         }.card(padding: 24).onAppear { model.refreshNotificationStatus() }
     }
+    private func shortDescription(_ style: ReminderStyle) -> String {
+        switch style {
+        case .fullScreen: return "全屏覆盖，强提醒休息"
+        case .mini: return "角落浮窗，轻柔打断"
+        case .simple: return "顶部横幅，不遮挡操作"
+        case .notification: return "系统通知，极轻打扰"
+        }
+    }
     private var styleHint: String {
         switch model.settings.reminderStyle {
-        case .fullScreen: return "所有屏幕同时提醒，课程只在点击的屏幕播放"
-        case .mini: return "所有屏幕同时提醒，课程只在点击的屏幕播放"
-        case .simple: return "所有屏幕顶部显示文字与倒计时，结束后自动收起"
-        case .notification: return "通知中可开始休息或延后"
+        case .fullScreen: return "所有屏幕同时显示全屏休息界面；课程只在点击的屏幕播放。"
+        case .mini: return "所有屏幕角落显示迷你浮窗；课程只在点击的屏幕播放。"
+        case .simple: return "所有屏幕顶部显示提示与倒计时，休息结束后自动收起。"
+        case .notification: return "真实到期通知支持开始休息或稍后提醒；预览通知仅展示外观，不含操作按钮。"
         }
     }
     private func icon(_ style: ReminderStyle) -> String {

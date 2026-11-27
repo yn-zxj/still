@@ -36,21 +36,35 @@ struct ReminderRecommendationCard: View {
 
 struct ReminderWorkoutView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var liveClock: LiveEngineClock
     let course: Course
     @ObservedObject var player: CoursePlayer
     let preview: Bool
     var back: () -> Void
     var close: () -> Void
+
+    @MainActor
+    init(model: AppModel, course: Course, player: CoursePlayer, preview: Bool, back: @escaping () -> Void, close: @escaping () -> Void) {
+        self.model = model
+        _liveClock = ObservedObject(wrappedValue: model.liveClock)
+        self.course = course
+        self.player = player
+        self.preview = preview
+        self.back = back
+        self.close = close
+    }
+
     var body: some View {
+        let _ = liveClock.tick
         VStack(spacing: 18) {
             HStack {
                 Button("‹ 返回提醒", action: back).buttonStyle(.plain).font(.system(size: 14, weight: .medium)).foregroundStyle(Palette.accentDark)
                 Spacer()
                 Text(preview ? "课程预览 · 不计入休息" : "休息跟练").font(.system(size: 13)).foregroundStyle(Palette.secondary)
                 Button(action: close) { LineIcon(systemName: "x", size: 16).frame(width: 30, height: 30) }
-                    .buttonStyle(.plain).accessibilityLabel(preview ? "关闭预览" : "关闭跟练并稍后提醒")
+                    .buttonStyle(.plain).accessibilityLabel(preview ? "关闭预览" : "关闭跟练")
             }
-            ScrollView(showsIndicators: false) {
+            EdgeFadeScrollView(showsIndicators: false, fadeLength: 24, fadeThreshold: 18) {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack {
                         Text(course.title).font(.system(size: 22, weight: .semibold, design: .rounded))
@@ -98,7 +112,13 @@ struct ReminderWorkoutView: View {
                     HStack(spacing: 14) {
                         Button { player.toggle() } label: { LineLabel(player.playing ? "暂停" : player.finished ? "再练一次" : player.active ? "继续跟练" : "开始跟练", systemImage: player.playing ? "pause" : "play") }
                             .buttonStyle(SoftButtonStyle(prominent: true)).disabled(player.loading || player.error != nil)
-                        if player.finished { Button("完成并关闭", action: close).buttonStyle(SoftButtonStyle()) }
+                        if player.finished {
+                            if !preview && model.engine.phase == .resting {
+                                Button("返回休息", action: back).buttonStyle(SoftButtonStyle())
+                            } else {
+                                Button("完成并关闭", action: close).buttonStyle(SoftButtonStyle())
+                            }
+                        }
                         else if player.active { Button("结束跟练", action: back).buttonStyle(.plain).font(.system(size: 14)).foregroundStyle(Palette.secondary) }
                         Spacer()
                         Text(player.finished ? "本次跟练已完成" : "\(clockText(player.position)) / \(clockText(player.duration))")

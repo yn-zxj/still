@@ -10,7 +10,7 @@ final class SystemActivityMonitor: ObservableObject {
     let foregroundProcessActivity = ForegroundProcessActivityMonitor()
     @Published private(set) var keyboardAuthorized = false
     @Published private(set) var keyboardStatus = "使用基础检测"
-    @Published private(set) var signalSnapshot = ActivitySignalSnapshot()
+    private(set) var signalSnapshot = ActivitySignalSnapshot()
     private let keyboard = KeyboardActivityListener()
     private var permissionCheckedAt: Double = -.infinity
     private let bootSessionID = SystemActivityMonitor.readBootSessionID()
@@ -117,14 +117,17 @@ final class SystemActivityMonitor: ObservableObject {
         let now = ProcessInfo.processInfo.systemUptime
         if now - permissionCheckedAt >= 5 {
             permissionCheckedAt = now
-            keyboardAuthorized = CGPreflightListenEventAccess()
+            let authorized = CGPreflightListenEventAccess()
+            if keyboardAuthorized != authorized { keyboardAuthorized = authorized }
         }
         guard keyboardAuthorized, enableMonitoring else {
             keyboard.stop()
-            keyboardStatus = keyboardAuthorized ? "已授权 · 休息或屏幕不可用时暂停" : "使用基础检测"
+            let nextStatus = keyboardAuthorized ? "已授权 · 休息或屏幕不可用时暂停" : "使用基础检测"
+            if keyboardStatus != nextStatus { keyboardStatus = nextStatus }
             return
         }
-        keyboardStatus = keyboard.start() ? "已运行 · 只记录键盘活动时间" : "辅助监听暂不可用 · 使用基础检测"
+        let nextStatus = keyboard.start() ? "已运行 · 只记录键盘活动时间" : "辅助监听暂不可用 · 使用基础检测"
+        if keyboardStatus != nextStatus { keyboardStatus = nextStatus }
     }
     func shutdown() {
         playbackActivity.shutdown()

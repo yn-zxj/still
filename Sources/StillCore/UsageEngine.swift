@@ -26,6 +26,8 @@ public struct UsageEngine {
     private var recoveredIdleSeconds: Double = 0
     private var restStartFatigue: Double = 0
     private var guidedRecovery: Double = 0
+    private var guidedElapsed: Double = 0
+    private var restBeforeCourse: Double?
     private var unavailableSince: Date?
     private var powerTime: SystemPowerTime?
     private var legacyActivity: Date?
@@ -135,7 +137,7 @@ public struct UsageEngine {
                 recoverFatigue(seconds: seconds)
                 return
             }
-            let target = breaks.first(where: { $0.id == restingID })?.targetSeconds ?? settings.restSeconds
+            let target = breaks.last(where: { $0.id == restingID })?.targetSeconds ?? settings.restSeconds
             restRemaining = max(0, target - max(0, sample.monotonic - began))
             fatigueWorkSeconds = restStartFatigue * restRemaining / target
             if restRemaining == 0 { finishRest(at: sample.date) }
@@ -232,8 +234,11 @@ public struct UsageEngine {
         let wasResting = phase == .resting
         tick(sample)
         guard !wasResting, phase != .resting else { return }
+        beginRest(sample, target: max(1, duration ?? settings.restSeconds))
+    }
+
+    private mutating func beginRest(_ sample: ActivitySample, target: Double) {
         activeSegmentID = nil; activeApplicationSegmentID = nil
-        let target = max(1, duration ?? settings.restSeconds)
         unavailableSince = nil
         let record = BreakRecord(startedAt: sample.date, targetSeconds: target, outcome: .inProgress, source: .manual)
         breaks.append(record); restingID = record.id; restStartedMonotonic = sample.monotonic
@@ -244,27 +249,59 @@ public struct UsageEngine {
     }
 
     public mutating func startGuidedRest(_ sample: ActivitySample, duration: Double) {
-        if phase == .resting { interruptRest(sample) }
-        startRest(sample, duration: duration)
+        guard !guidedRest else { return }
+        tick(sample)
+        restBeforeCourse = phase == .resting ? restRemaining : nil
+        if phase == .resting { closeRest(at: sample.date, outcome: .interrupted) }
+        guidedElapsed = 0
+        beginRest(sample, target: CourseProgress(duration: duration).duration)
         guidedRest = true
     }
 
     public mutating func updateGuidedRest(elapsed: Double, completed: Bool, sample: ActivitySample) {
-        guard guidedRest, phase == .resting, elapsed.isFinite,
-              let target = breaks.first(where: { $0.id == restingID })?.targetSeconds else { return }
+        guard guidedRest, elapsed.isFinite,
+              let target = breaks.last(where: { $0.id == restingID })?.targetSeconds else { return }
         tick(sample)
-        restRemaining = max(0, target - min(target, max(0, elapsed)))
-        fatigueWorkSeconds = max(0, restStartFatigue * restRemaining / target - guidedRecovery)
-        if completed && elapsed >= target - min(1, target * 0.01) { finishRest(at: sample.date) }
+        guidedElapsed = max(guidedElapsed, min(target, elapsed))
+        restRemaining = target - guidedElapsed
+        let recovery = settings.linkCourseToFatigue
+            ? restStartFatigue * guidedElapsed / target
+            : guidedElapsed * settings.workSeconds / settings.restSeconds
+        fatigueWorkSeconds = max(0, restStartFatigue - recovery - guidedRecovery)
+        if completed && guidedElapsed >= target - min(1, target * 0.01) {
+            endGuidedRest(at: sample, completed: true)
+        }
+    }
+
+    public mutating func stopGuidedRest(_ sample: ActivitySample) {
+        guard guidedRest else { return }
+        tick(sample)
+        endGuidedRest(at: sample, completed: false)
+    }
+
+    private mutating func endGuidedRest(at sample: ActivitySample, completed: Bool) {
+        let remaining = restBeforeCourse.map { max(0, $0 - guidedElapsed) }
+        restBeforeCourse = nil
+        let recovered = settings.linkCourseToFatigue && (completed || fatigueWorkSeconds <= 0.000_001)
+        if recovered || remaining == 0 {
+            finishRest(at: sample.date, outcome: completed ? .completed : .interrupted)
+            return
+        }
+
+        closeRest(at: sample.date, outcome: completed ? .completed : .interrupted)
+        if let remaining {
+            let recoveryTime = fatigueWorkSeconds / settings.workSeconds * settings.restSeconds
+            beginRest(sample, target: settings.linkCourseToFatigue ? min(remaining, recoveryTime) : remaining)
+        } else if !completed {
+            snooze(sample)
+        }
     }
 
     public mutating func interruptRest(_ sample: ActivitySample) {
         tick(sample)
         guard phase == .resting else { return }
-        guard let id = restingID, let index = breaks.firstIndex(where: { $0.id == id }) else { return }
-        breaks[index].outcome = .interrupted; breaks[index].endedAt = sample.date
-        restingID = nil; restStartedMonotonic = nil; restRemaining = 0; guidedRest = false
-        phase = .working; activeSegmentID = nil; activeApplicationSegmentID = nil; previous = sample
+        restBeforeCourse = nil
+        closeRest(at: sample.date, outcome: .interrupted)
         snooze(sample)
     }
 
@@ -295,7 +332,7 @@ public struct UsageEngine {
     private mutating func addUsage(from start: Date, to end: Date, seconds: Double,
                                    application: ForegroundApplication?) {
         fatigueWorkSeconds += seconds
-        if let id = activeSegmentID, let index = segments.firstIndex(where: { $0.id == id }),
+        if let id = activeSegmentID, let index = segments.lastIndex(where: { $0.id == id }),
            abs(segments[index].endedAt.timeIntervalSince(start)) < 0.1 {
             segments[index].endedAt = end; segments[index].seconds += seconds
         } else {
@@ -309,7 +346,7 @@ public struct UsageEngine {
                                               application: ForegroundApplication?) {
         guard let application else { activeApplicationSegmentID = nil; return }
         if let id = activeApplicationSegmentID,
-           let index = applicationSegments.firstIndex(where: { $0.id == id }),
+           let index = applicationSegments.lastIndex(where: { $0.id == id }),
            applicationSegments[index].application.key == application.key,
            abs(applicationSegments[index].endedAt.timeIntervalSince(start)) < 0.1 {
             applicationSegments[index].endedAt = end
@@ -323,7 +360,7 @@ public struct UsageEngine {
     }
 
     private mutating func trimActiveSegment(at cutoff: Date) {
-        guard let id = activeSegmentID, let index = segments.firstIndex(where: { $0.id == id }),
+        guard let id = activeSegmentID, let index = segments.lastIndex(where: { $0.id == id }),
               segments[index].endedAt > cutoff else { return }
         let segment = segments[index]
         let end = max(segment.startedAt, cutoff)
@@ -336,7 +373,7 @@ public struct UsageEngine {
 
     private mutating func trimActiveApplicationSegment(at cutoff: Date) {
         guard let id = activeApplicationSegmentID,
-              let index = applicationSegments.firstIndex(where: { $0.id == id }),
+              let index = applicationSegments.lastIndex(where: { $0.id == id }),
               applicationSegments[index].endedAt > cutoff else { return }
         let segment = applicationSegments[index]
         let end = max(segment.startedAt, cutoff)
@@ -347,13 +384,18 @@ public struct UsageEngine {
         applicationSegments[index].seconds = max(0, segment.seconds * fraction)
     }
 
-    private mutating func finishRest(at date: Date) {
-        if let index = breaks.firstIndex(where: { $0.id == restingID }) {
-            breaks[index].endedAt = date; breaks[index].outcome = .completed
+    private mutating func finishRest(at date: Date, outcome: BreakOutcome = .completed) {
+        closeRest(at: date, outcome: outcome)
+        resetRound(); completionSerial += 1
+    }
+
+    private mutating func closeRest(at date: Date, outcome: BreakOutcome) {
+        if let index = breaks.lastIndex(where: { $0.id == restingID }) {
+            breaks[index].endedAt = date; breaks[index].outcome = outcome
         }
         restingID = nil; restStartedMonotonic = nil; restRemaining = 0; guidedRest = false
-        activeApplicationSegmentID = nil
-        resetRound(); phase = .working; completionSerial += 1
+        activeSegmentID = nil; activeApplicationSegmentID = nil
+        phase = trackingPaused ? .paused : .working
     }
 
     private mutating func resetRound() {

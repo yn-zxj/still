@@ -39,7 +39,7 @@ final class ForegroundProcessActivityMonitor: ObservableObject {
             previousSampleAt = now
             hotSamples = 0
             lastActivityAt = nil
-            status = "已运行 · 等待前台应用活动"
+            setStatus("已运行 · 等待前台应用活动")
             return
         }
 
@@ -56,7 +56,7 @@ final class ForegroundProcessActivityMonitor: ObservableObject {
         guard let previousCPUTime, current >= previousCPUTime else {
             self.previousCPUTime = current
             hotSamples = 0
-            status = "进程已重启 · 重新判断"
+            setStatus("进程已重启 · 重新判断")
             return
         }
 
@@ -66,11 +66,11 @@ final class ForegroundProcessActivityMonitor: ObservableObject {
             hotSamples = min(requiredHotSamples, hotSamples + 1)
             if hotSamples >= requiredHotSamples {
                 lastActivityAt = now
-                status = "检测到前台界面活动"
+                setStatus("检测到前台界面活动")
             }
         } else {
             hotSamples = 0
-            status = "已运行 · 等待前台应用活动"
+            setStatus("已运行 · 等待前台应用活动")
         }
     }
 
@@ -89,7 +89,11 @@ final class ForegroundProcessActivityMonitor: ObservableObject {
         previousSampleAt = nil
         hotSamples = 0
         lastActivityAt = nil
-        self.status = status
+        setStatus(status)
+    }
+
+    private func setStatus(_ value: String) {
+        if status != value { status = value }
     }
 }
 

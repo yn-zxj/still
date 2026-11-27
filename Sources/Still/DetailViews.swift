@@ -4,24 +4,56 @@ import StillCore
 
 struct HistoryView: View {
     @ObservedObject var model: AppModel
-    private var days: Int { model.historyDays }
-    private var summaries: [DailySummary] { UsageStatistics.daily(segments: model.engine.segments, breaks: model.engine.breaks, endingAt: model.engine.now, days: days) }
-    private var coveredDays: Int {
-        UsageStatistics.coveredDays(startedAt: model.recordingStartedAt, endingAt: model.engine.now, days: days)
+    @ObservedObject private var statsClock: StatsClock
+
+    @MainActor
+    init(model: AppModel) {
+        self.model = model
+        _statsClock = ObservedObject(wrappedValue: model.statsClock)
     }
-    private var chartInHours: Bool { (summaries.map(\.seconds).max() ?? 0) >= 3600 }
-    private var chartUnit: Double { chartInHours ? 3600 : 60 }
+
     var body: some View {
+        let _ = statsClock.revision
+        let days = model.historyDays
+        let now = model.engine.now
+        let summaries = UsageStatistics.daily(
+            segments: model.engine.segments,
+            breaks: model.engine.breaks,
+            endingAt: now,
+            days: days
+        )
+        let coveredDays = UsageStatistics.coveredDays(
+            startedAt: model.recordingStartedAt,
+            endingAt: now,
+            days: days
+        )
+        let totalSeconds = summaries.reduce(0.0) { $0 + $1.seconds }
+        let totalBreaks = summaries.reduce(0) { $0 + $1.completedBreaks }
+        let maxSeconds = summaries.map(\.seconds).max() ?? 0
+        let chartInHours = maxSeconds >= 3600
+        let chartUnit: Double = chartInHours ? 3600 : 60
+        let chartTop = max(chartInHours ? 1 : 5, ceil(maxSeconds / chartUnit))
+        let recent = Array(model.engine.breaks.suffix(6).reversed())
+
         VStack(alignment: .leading, spacing: 25) {
-            HStack {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
                 SectionHeading(title: "使用记录")
                 Spacer()
-                Button { model.exportCSV() } label: { LineLabel("导出记录", systemImage: "square.and.arrow.up") }.buttonStyle(SoftButtonStyle())
+                VStack(alignment: .trailing, spacing: 6) {
+                    Button { model.exportCSV() } label: { LineLabel("导出全部记录", systemImage: "square.and.arrow.up") }
+                        .buttonStyle(SoftButtonStyle())
+                        .help("导出本机全部历史使用、应用明细与休息记录，不受下方 7/28 天筛选影响")
+                    if let message = model.exportMessage {
+                        Text(message)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(message.hasPrefix("导出失败") ? Palette.warning : Palette.greenText)
+                    }
+                }
             }
             HStack(spacing: 16) {
-                metric("累计使用", durationText(summaries.reduce(0) { $0 + $1.seconds }), "过去 \(days) 天")
-                metric("日均使用", durationText(summaries.reduce(0) { $0 + $1.seconds } / Double(max(1, coveredDays))), "按已记录的 \(coveredDays) 天计算（含今天）")
-                metric("完成休息", "\(summaries.reduce(0) { $0 + $1.completedBreaks }) 次", "完成次数")
+                metric("累计使用", durationText(totalSeconds), "过去 \(days) 天")
+                metric("日均使用", durationText(totalSeconds / Double(max(1, coveredDays))), "按已记录的 \(coveredDays) 天计算（含今天）")
+                metric("完成休息", "\(totalBreaks) 次", "过去 \(days) 天")
             }
             VStack(alignment: .leading, spacing: 27) {
                 HStack {
@@ -34,10 +66,10 @@ struct HistoryView: View {
                 }
                 Chart(summaries) { summary in
                     BarMark(x: .value("日期", summary.date, unit: .day), y: .value(chartInHours ? "小时" : "分钟", summary.seconds / chartUnit))
-                        .foregroundStyle(Calendar.current.isDateInToday(summary.date) ? Palette.accent : Palette.accent.opacity(0.25))
+                        .foregroundStyle(Calendar.current.isDateInToday(summary.date) ? Palette.accent : Palette.accent.opacity(0.28))
                         .cornerRadius(5)
                 }
-                .chartYScale(domain: 0...max(chartInHours ? 1 : 5, ceil((summaries.map(\.seconds).max() ?? 0) / chartUnit)))
+                .chartYScale(domain: 0...chartTop)
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .day, count: days == 7 ? 1 : 4)) { value in
                         AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true).font(.system(size: 12)).foregroundStyle(Palette.secondary)
@@ -45,15 +77,18 @@ struct HistoryView: View {
                 }
                 .chartYAxis { AxisMarks(position: .leading) { _ in AxisGridLine().foregroundStyle(Palette.line); AxisValueLabel().font(.system(size: 12)).foregroundStyle(Palette.secondary) } }
                 .frame(height: 225)
-                if summaries.allSatisfy({ $0.seconds < 1 }) {
+                if maxSeconds < 1 {
                     LineLabel("暂无使用记录", systemImage: "sparkle").font(.system(size: 14)).foregroundStyle(Palette.secondary)
                 }
             }.card(padding: 26)
             VStack(alignment: .leading, spacing: 17) {
-                HStack {
-                    Text("最近的休息").font(.system(size: 15, weight: .semibold)); Spacer()
+                HStack(alignment: .firstTextBaseline) {
+                    Text("最近的休息").font(.system(size: 15, weight: .semibold))
+                    Spacer()
+                    Text("最近 6 条 · 不受时间范围筛选")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondary)
                 }
-                let recent = Array(model.engine.breaks.suffix(6).reversed())
                 if recent.isEmpty {
                     HStack(spacing: 15) {
                         LineIcon(systemName: "leaf.circle").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(Palette.green)
@@ -66,16 +101,28 @@ struct HistoryView: View {
                 } else {
                     ForEach(recent) { record in
                         HStack(spacing: 12) {
-                            LineIcon(systemName: record.outcome == .completed ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(record.outcome == .completed ? Palette.green : Palette.secondary)
-                            Text(record.source == .natural ? "自然离开" : "休息倒计时").font(.system(size: 14))
-                            Text(record.startedAt.formatted(.dateTime.month().day().hour().minute())).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                            LineIcon(systemName: record.outcome == .completed ? "checkmark.circle.fill" : "circle.dashed")
+                                .frame(width: 18)
+                                .foregroundStyle(record.outcome == .completed ? Palette.greenText : Palette.secondary)
+                                .accessibilityHidden(true)
+                            Text(record.source == .natural ? "自然离开" : "休息倒计时")
+                                .font(.system(size: 14))
+                                .frame(minWidth: 78, alignment: .leading)
+                            Text(record.startedAt.formatted(.dateTime.month().day().hour().minute()))
+                                .font(.system(size: 13))
+                                .monospacedDigit()
+                                .foregroundStyle(Palette.secondary)
                             Spacer()
-                            Text(outcomeLabel(record.outcome)).font(.system(size: 13)).foregroundStyle(record.outcome == .completed ? Palette.green : Palette.secondary)
-                        }.padding(.vertical, 6)
+                            Text(outcomeLabel(record.outcome))
+                                .font(.system(size: 13, weight: record.outcome == .completed ? .medium : .regular))
+                                .foregroundStyle(record.outcome == .completed ? Palette.greenText : Palette.secondary)
+                                .frame(minWidth: 56, alignment: .trailing)
+                        }
+                        .padding(.vertical, 6)
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }.card(padding: 24)
-            if let message = model.exportMessage { Text(message).font(.system(size: 13)).foregroundStyle(Palette.secondary) }
         }
     }
     private func metric(_ title: String, _ value: String, _ subtitle: String) -> some View {
@@ -98,29 +145,57 @@ struct RulesView: View {
             ReminderSettingsView(model: model)
             HStack(spacing: 12) {
                 ForEach([(25, 5, "轻专注"), (45, 5, "日常节奏"), (60, 10, "深度工作")], id: \.0) { preset in
+                    let isSelected = selected(preset.0, preset.1)
                     Button {
                         model.settings.workMinutes = preset.0; model.settings.restMinutes = preset.1
                     } label: {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text(preset.2).font(.system(size: 14, weight: .medium))
+                                Text(preset.2)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(isSelected ? Palette.accentDark : Palette.ink)
                                 Spacer()
-                                LineIcon(systemName: selected(preset.0, preset.1) ? "checkmark.circle.fill" : "circle").foregroundStyle(selected(preset.0, preset.1) ? Palette.accent : Palette.line)
+                                LineIcon(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(isSelected ? Palette.accentDark : Palette.line)
+                                    .accessibilityHidden(true)
                             }
-                            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                                Text("\(preset.0)").font(.system(size: 30, weight: .light, design: .rounded))
-                                Text("/ \(preset.1) 分钟").font(.system(size: 14)).foregroundStyle(Palette.secondary)
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("使用").font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                                Text("\(preset.0)").font(.system(size: 26, weight: .medium, design: .rounded)).monospacedDigit()
+                                Text("分").font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                                Text("·").foregroundStyle(Palette.secondary).padding(.horizontal, 2)
+                                Text("休息").font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                                Text("\(preset.1)").font(.system(size: 26, weight: .medium, design: .rounded)).monospacedDigit()
+                                Text("分").font(.system(size: 12)).foregroundStyle(Palette.secondary)
                             }
-                        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(selected(preset.0, preset.1) ? Palette.lavender : Palette.surface, in: RoundedRectangle(cornerRadius: 19))
-                            .overlay(RoundedRectangle(cornerRadius: 19).stroke(selected(preset.0, preset.1) ? Palette.accent.opacity(0.3) : Palette.line, lineWidth: 1))
-                    }.buttonStyle(.plain).accessibilityAddTraits(selected(preset.0, preset.1) ? .isSelected : [])
+                        }
+                        .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(isSelected ? Palette.lavender : Palette.surface, in: RoundedRectangle(cornerRadius: 19, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                                .stroke(isSelected ? Palette.selectionBorder : Palette.line, lineWidth: isSelected ? 1.5 : 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    }
+                    .buttonStyle(SelectableCardButtonStyle())
+                    .accessibilityLabel("\(preset.2)，使用 \(preset.0) 分钟，休息 \(preset.1) 分钟")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
             VStack(alignment: .leading, spacing: 0) {
                 numericRow("每轮使用", subtitle: "累计到这个时长，提醒你休息", value: $model.settings.workMinutes, range: 5...180, step: 5, icon: "hourglass")
                 Divider().overlay(Palette.line).padding(.vertical, 20)
                 numericRow("每次休息", subtitle: "完成休息后，开始新的一轮", value: $model.settings.restMinutes, range: 1...30, step: 1, icon: "leaf")
+                Divider().overlay(Palette.line).padding(.vertical, 20)
+                ruleRow(
+                    "跟练联动疲劳",
+                    model.settings.coursesEnabled
+                        ? "开启时，完成跟练即可结束本轮休息。关闭时，跟练按实际播放时长计入预设休息。"
+                        : "开启时，完成跟练即可结束本轮休息。需在偏好设置开启「休息课程」后才会触发跟练联动。"
+                ) {
+                    Toggle("跟练联动疲劳", isOn: $model.settings.linkCourseToFatigue).labelsHidden().toggleStyle(.switch)
+                }
             }.card(padding: 25)
             VStack(spacing: 22) {
                 ruleRow("多久没有操作视为离开", "活动估算会回溯空闲边界；短暂停顿不会清空本轮。") {
@@ -151,17 +226,49 @@ struct RulesView: View {
     private func numericRow(_ title: String, subtitle: String, value: Binding<Int>, range: ClosedRange<Int>, step: Int, icon: String) -> some View {
         HStack(spacing: 15) {
             LineIcon(systemName: icon).font(.system(size: 21, weight: .light)).foregroundStyle(Palette.accent).frame(width: 35)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 7) {
                 Text(title).font(.system(size: 14, weight: .medium))
                 Text(subtitle).font(.system(size: 13)).foregroundStyle(Palette.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button { value.wrappedValue = max(range.lowerBound, value.wrappedValue - step) } label: { LineIcon(systemName: "minus").frame(width: 28, height: 28) }
-                .buttonStyle(.borderless).disabled(value.wrappedValue <= range.lowerBound).accessibilityLabel("减少\(title)")
-            Text("\(value.wrappedValue)").font(.system(size: 25, weight: .light, design: .rounded)).monospacedDigit().frame(width: 47)
-            Text("分钟").font(.system(size: 13)).foregroundStyle(Palette.secondary)
-            Button { value.wrappedValue = min(range.upperBound, value.wrappedValue + step) } label: { LineIcon(systemName: "plus").frame(width: 28, height: 28) }
-                .buttonStyle(.borderless).disabled(value.wrappedValue >= range.upperBound).accessibilityLabel("增加\(title)")
+            HStack(spacing: 8) {
+                Button { value.wrappedValue = max(range.lowerBound, value.wrappedValue - step) } label: {
+                    LineIcon(systemName: "minus", size: 14)
+                        .frame(width: 30, height: 30)
+                        .background(Palette.background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Palette.line, lineWidth: 1))
+                }
+                .buttonStyle(SelectableCardButtonStyle())
+                .disabled(value.wrappedValue <= range.lowerBound)
+                .opacity(value.wrappedValue <= range.lowerBound ? 0.45 : 1)
+                .accessibilityLabel("减少\(title)，步长 \(step) 分钟")
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("\(value.wrappedValue)").font(.system(size: 25, weight: .light, design: .rounded)).monospacedDigit().frame(minWidth: 44, alignment: .trailing)
+                    Text("分钟").font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(title)
+                .accessibilityValue("\(value.wrappedValue) 分钟")
+                .accessibilityHint("每步调整 \(step) 分钟，范围 \(range.lowerBound) 至 \(range.upperBound) 分钟")
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
+                    case .decrement: value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
+                    @unknown default: break
+                    }
+                }
+                Button { value.wrappedValue = min(range.upperBound, value.wrappedValue + step) } label: {
+                    LineIcon(systemName: "plus", size: 14)
+                        .frame(width: 30, height: 30)
+                        .background(Palette.background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Palette.line, lineWidth: 1))
+                }
+                .buttonStyle(SelectableCardButtonStyle())
+                .disabled(value.wrappedValue >= range.upperBound)
+                .opacity(value.wrappedValue >= range.upperBound ? 0.45 : 1)
+                .accessibilityLabel("增加\(title)，步长 \(step) 分钟")
+            }
         }
     }
     private func ruleRow<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder control: () -> Content) -> some View {
@@ -189,239 +296,289 @@ struct PreferencesView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 25) {
+        VStack(alignment: .leading, spacing: 24) {
             SectionHeading(title: "偏好设置")
-            HStack(spacing: 15) {
-                LineIcon(systemName: "monitor").frame(width: 25).foregroundStyle(Palette.accent)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("外观主题").font(.system(size: 14, weight: .medium))
-                    Text("主窗口、快捷面板和休息提醒会立即切换。")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.secondary)
-                }
-                Spacer(minLength: 20)
-                SegmentedPillControl(
-                    selection: $model.settings.appearanceTheme,
-                    values: AppearanceTheme.allCases
-                ) { theme in
-                    Text(theme.title)
-                }
-                    .frame(width: 280)
-            }.card(padding: 25)
-            ActivityDetectionSettingsView(
-                monitor: model.monitor,
-                revealActivityLog: model.revealActivityLog
-            )
-            VStack(spacing: 18) {
-                toggleRow("休息课程", "开启后显示课程库，并在休息提醒中推荐你添加的课程。", isOn: $model.settings.coursesEnabled, icon: "book-open")
-                if model.settings.coursesEnabled {
-                    HStack {
-                        Text("支持本地视频与自动识别的视频/网页链接；课程由你自行添加。")
-                            .font(.system(size: 12)).foregroundStyle(Palette.secondary)
-                        Spacer()
-                        Button("管理课程") { model.page = .courses }.buttonStyle(SettingsButtonStyle())
-                    }
-                }
-            }.card(padding: 25)
-            VStack(spacing: 22) {
-                toggleRow("休息提醒", "暂停提醒后，仍然记录使用时间。", isOn: $model.settings.remindersEnabled, icon: "bell")
-                Divider().overlay(Palette.line)
-                toggleRow("休息结束声音", "倒计时结束时播放声音。", isOn: $model.settings.soundEnabled, icon: "speaker.wave.2")
-                Divider().overlay(Palette.line)
-                toggleRow("呼吸动效", "呼吸花与轻微过渡；同时尊重系统的减少动态效果设置。", isOn: $model.settings.motionEnabled, icon: "sparkles")
-            }.card(padding: 25)
-            VStack(alignment: .leading, spacing: 18) {
-                toggleRow(
-                    "时间去向",
-                    "只在本机保存前台应用名称、分类与停留时段；不读取窗口标题、网页地址、截图或输入内容。",
-                    isOn: $model.settings.applicationInsightsEnabled,
-                    icon: "chart-line"
-                )
-                Divider().overlay(Palette.line)
+
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsGroupHeading(title: "外观与提醒")
                 HStack(spacing: 15) {
-                    LineIcon(systemName: "eye").frame(width: 25).foregroundStyle(Palette.accent)
+                    LineIcon(systemName: "monitor").frame(width: 25).foregroundStyle(Palette.accent)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("应用明细").font(.system(size: 14, weight: .medium))
-                        Text("已有 \(model.engine.applicationSegments.count) 段应用记录。关闭开关只停止继续记录，已有明细会保留。")
-                            .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3)
+                        Text("外观主题").font(.system(size: 14, weight: .medium))
+                        Text("主窗口、快捷面板和休息提醒会立即切换。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    Spacer(minLength: 20)
+                    SegmentedPillControl(
+                        selection: $model.settings.appearanceTheme,
+                        values: AppearanceTheme.allCases
+                    ) { theme in
+                        Text(theme.title)
+                    }
+                    .frame(width: 280)
+                }.card(padding: 25)
+                VStack(spacing: 22) {
+                    toggleRow("休息提醒", "暂停提醒后，仍然记录使用时间。", isOn: $model.settings.remindersEnabled, icon: "bell")
+                    Divider().overlay(Palette.line)
+                    toggleRow("提醒提示音", "提醒到期、预览与倒计时结束时播放声音。", isOn: $model.settings.soundEnabled, icon: "speaker.wave.2")
+                    Divider().overlay(Palette.line)
+                    toggleRow("呼吸动效", "呼吸花与轻微过渡；同时尊重系统的减少动态效果设置。", isOn: $model.settings.motionEnabled, icon: "sparkles")
+                }.card(padding: 25)
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsGroupHeading(title: "监测与功能")
+                ActivityDetectionSettingsView(
+                    monitor: model.monitor,
+                    revealActivityLog: model.revealActivityLog
+                )
+                HStack(spacing: 15) {
+                    LineIcon(systemName: "pause.circle").font(.system(size: 24, weight: .light)).foregroundStyle(Palette.accent)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(model.trackingPaused ? "使用统计已暂停" : "使用统计进行中").font(.system(size: 14, weight: .medium))
+                        Text("暂停统计会保留历史与本轮进度，恢复后继续统计。").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
-                    Button("清除明细") { state.confirmClearApplicationHistory = true }
+                    Button(model.trackingPaused ? "恢复统计" : "暂停统计") { model.toggleTracking() }
                         .buttonStyle(SettingsButtonStyle())
-                        .disabled(model.engine.applicationSegments.isEmpty)
-                }
-            }.card(padding: 25)
-            .alert("清除应用明细？", isPresented: $state.confirmClearApplicationHistory) {
-                Button("取消", role: .cancel) {}
-                Button("清除", role: .destructive) { model.clearApplicationHistory() }
-            } message: {
-                Text("会删除所有前台应用名称、分类和停留时段；总使用时长与休息记录不受影响。")
+                }.card(padding: 22)
+                VStack(spacing: 18) {
+                    toggleRow("休息课程", "开启后显示课程库，并在休息提醒中推荐你添加的课程。", isOn: $model.settings.coursesEnabled, icon: "book-open")
+                    if model.settings.coursesEnabled {
+                        HStack {
+                            Text("支持本地视频与自动识别的视频/网页链接；课程由你自行添加。")
+                                .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                            Spacer()
+                            Button("管理课程") { model.page = .courses }.buttonStyle(SettingsButtonStyle())
+                        }
+                    }
+                }.card(padding: 25)
+                VStack(spacing: 16) {
+                    toggleRow("坐姿关照", "开启后显示坐姿页面。摄像头只在本机分析，支持后台监测与置顶提醒。", isOn: $model.settings.postureEnabled, icon: "person-standing")
+                    if model.settings.postureEnabled {
+                        HStack {
+                            Text("先到坐姿页面完成校准，才会开始判断。").font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                            Spacer()
+                            Button("打开坐姿关照") { model.page = .posture }.buttonStyle(SettingsButtonStyle())
+                        }
+                    }
+                }.card(padding: 25)
             }
-            VStack(alignment: .leading, spacing: 18) {
-                toggleRow(
-                    "Agent 工作时间",
-                    "把 Codex、Claude Code 等 Agent 的工作时段并入时间去向，包含其他机器上的会话。",
-                    isOn: $model.settings.agentActivityEnabled,
-                    icon: "terminal"
-                )
-                if model.settings.agentActivityEnabled {
+
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsGroupHeading(title: "数据与集成")
+                VStack(alignment: .leading, spacing: 18) {
+                    toggleRow(
+                        "时间去向",
+                        "只在本机保存前台应用名称、分类与停留时段；不读取窗口标题、网页地址、截图或输入内容。",
+                        isOn: $model.settings.applicationInsightsEnabled,
+                        icon: "chart-line"
+                    )
                     Divider().overlay(Palette.line)
                     HStack(spacing: 15) {
-                        LineIcon(systemName: "radio")
-                            .frame(width: 25)
-                            .foregroundStyle(agentActivity.status.isError ? Color.orange : Palette.accent)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("HAPI Hub").font(.system(size: 14, weight: .medium))
-                            Text(agentActivity.status.title)
-                                .font(.system(size: 12))
-                                .foregroundStyle(agentActivity.status.isError ? Color.orange : Palette.secondary)
-                            if let hubURL = agentActivity.hubURL, !hubURL.isEmpty {
-                                Text(hubURL)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(Palette.secondary)
-                                    .lineLimit(1)
-                            }
+                        LineIcon(systemName: "eye").frame(width: 25).foregroundStyle(Palette.accent)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("应用明细").font(.system(size: 14, weight: .medium))
+                            Text("已有 \(model.applicationSegmentCount) 段应用记录。关闭开关只停止继续记录，已有明细会保留。")
+                                .font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3)
                         }
                         Spacer()
-                        Toggle("同步 HAPI", isOn: $model.settings.hapiSyncEnabled)
+                        Button("清除明细") { state.confirmClearApplicationHistory = true }
+                            .buttonStyle(SettingsButtonStyle())
+                            .disabled(model.applicationSegmentCount == 0)
+                    }
+                }.card(padding: 25)
+                .alert("清除应用明细？", isPresented: $state.confirmClearApplicationHistory) {
+                    Button("取消", role: .cancel) {}
+                    Button("清除", role: .destructive) { model.clearApplicationHistory() }
+                } message: {
+                    Text("会删除所有前台应用名称、分类和停留时段；总使用时长与休息记录不受影响。")
+                }
+                VStack(alignment: .leading, spacing: 18) {
+                    toggleRow(
+                        "Agent 工作时间",
+                        "开启后在「时间去向」中展示 Codex、Claude Code 等 Agent 的工作时段（含远程机器）；关闭后完全隐藏该模块。",
+                        isOn: $model.settings.agentActivityEnabled,
+                        icon: "terminal"
+                    )
+                    if model.settings.agentActivityEnabled {
+                        Divider().overlay(Palette.line)
+                        HStack(spacing: 15) {
+                            LineIcon(systemName: "radio")
+                                .frame(width: 25)
+                                .foregroundStyle(agentActivity.status.isError ? Palette.warning : Palette.accent)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("HAPI Hub").font(.system(size: 14, weight: .medium))
+                                Text(agentActivity.status.title)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(agentActivity.status.isError ? Palette.warning : Palette.secondary)
+                                if let hubURL = agentActivity.hubURL, !hubURL.isEmpty {
+                                    Text(hubURL)
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundStyle(Palette.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Toggle("同步 HAPI", isOn: $model.settings.hapiSyncEnabled)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                        }
+                        HStack(spacing: 10) {
+                            Button("立即同步") { agentActivity.syncNow() }
+                                .buttonStyle(SettingsButtonStyle())
+                                .disabled(!model.settings.hapiSyncEnabled || agentActivity.status == .checking || agentActivity.status == .syncing)
+                            if offersHAPIInstall {
+                                Button(installButtonTitle) { model.installHAPI() }
+                                    .buttonStyle(SettingsButtonStyle(prominent: true))
+                                    .disabled(hapiInstaller.state.isBusy)
+                            }
+                            Spacer()
+                            Text("\(agentActivity.sessions.count) 个已存会话")
+                                .font(.system(size: 12))
+                                .monospacedDigit()
+                                .foregroundStyle(Palette.secondary)
+                        }
+                        if hapiInstaller.state.isBusy {
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text(hapiInstaller.state.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Palette.secondary)
+                            }
+                        } else if case .installed(let version, _) = hapiInstaller.state {
+                            Label("HAPI \(version) 已下载并通过 SHA-256 校验", systemImage: "checkmark.circle.fill")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Palette.greenText)
+                        } else if case .failed(let message) = hapiInstaller.state {
+                            Text(message)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.warning)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Divider().overlay(Palette.line)
+                        Button {
+                            state.showHAPIAdvanced.toggle()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("高级选项与隐私说明")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(Palette.ink)
+                                Spacer()
+                                Text(state.showHAPIAdvanced ? "收起" : "展开")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Palette.secondary)
+                                LineIcon(systemName: "chevron-down", size: 13)
+                                    .foregroundStyle(Palette.secondary)
+                                    .rotationEffect(.degrees(state.showHAPIAdvanced ? 180 : 0))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("高级选项与隐私说明")
+                        .accessibilityValue(state.showHAPIAdvanced ? "已展开" : "已收起")
+                        if state.showHAPIAdvanced {
+                            VStack(alignment: .leading, spacing: 14) {
+                                if offersHAPIInstall {
+                                    Text("安装会从 HAPI 官方 GitHub Release 下载适合当前芯片的独立二进制，校验 SHA-256 后放到用户目录，不需要 npm、Homebrew 或管理员权限。")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Palette.secondary)
+                                        .lineSpacing(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Text("只保存会话标题、项目路径、机器名称和工作时段，不保存 prompt、回复或代码内容。同步直接连接你自己的 HAPI Hub；同一会话重复同步会合并。")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Palette.secondary)
+                                    .lineSpacing(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                HStack(spacing: 10) {
+                                    Button("选择 hapi…") { model.chooseHAPIPath() }
+                                        .buttonStyle(SettingsButtonStyle())
+                                    if !model.settings.hapiExecutablePath.isEmpty {
+                                        Button("自动查找") { model.settings.hapiExecutablePath = "" }
+                                            .buttonStyle(SettingsButtonStyle())
+                                    }
+                                    Spacer()
+                                    Button("清除 Agent 历史") { state.confirmClearAgentHistory = true }
+                                        .buttonStyle(SettingsButtonStyle())
+                                        .disabled(agentActivity.sessions.isEmpty)
+                                }
+                                if !model.settings.hapiExecutablePath.isEmpty {
+                                    Text("手动指定：\(URL(fileURLWithPath: model.settings.hapiExecutablePath).lastPathComponent)")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundStyle(Palette.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                }.card(padding: 25)
+                .alert("清除 Agent 历史？", isPresented: $state.confirmClearAgentHistory) {
+                    Button("取消", role: .cancel) {}
+                    Button("清除", role: .destructive) { agentActivity.clearSessions() }
+                } message: {
+                    Text("只删除息间保存的 Agent 会话标题、项目路径和时段；HAPI Hub 中的原始会话不会受影响。")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsGroupHeading(title: "系统与更新")
+                VStack(spacing: 22) {
+                    HStack(spacing: 15) {
+                        LineIcon(systemName: "power").frame(width: 25).foregroundStyle(Palette.accent)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("登录后自动启动").font(.system(size: 14, weight: .medium))
+                            Text("登录后自动开始记录。").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3)
+                        }
+                        Spacer()
+                        Toggle("登录后自动启动", isOn: Binding(get: { model.loginEnabled }, set: { model.setLoginEnabled($0) })).labelsHidden().toggleStyle(.switch)
+                    }
+                    if let error = model.loginError { Text(error).font(.system(size: 12)).foregroundStyle(Palette.warning) }
+                    Divider().overlay(Palette.line)
+                    HStack(spacing: 15) {
+                        LineIcon(systemName: "app.badge").frame(width: 25).foregroundStyle(Palette.accent)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("系统通知").font(.system(size: 14, weight: .medium))
+                            Text(model.notificationAuthorized ? "横幅样式与提示音由 macOS 系统通知设置控制。" : model.notificationStatus)
+                                .font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                        }
+                        Spacer()
+                        if model.notificationAuthorized {
+                            Text("已允许").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.greenText)
+                        } else {
+                            Button(model.notificationDenied ? "打开系统设置" : "允许通知") { model.enableNotifications() }
+                                .buttonStyle(SettingsButtonStyle())
+                        }
+                    }
+                    Divider().overlay(Palette.line)
+                    HStack(spacing: 15) {
+                        LineIcon(systemName: "app-window")
+                            .frame(width: 25)
+                            .foregroundStyle(Palette.accent)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("在 Dock 中显示息间").font(.system(size: 14, weight: .medium))
+                            Text("关闭后只隐藏 Dock 图标，菜单栏入口、计时和提醒仍会正常工作。")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.secondary)
+                                .lineSpacing(3)
+                        }
+                        Spacer()
+                        Toggle("在 Dock 中显示息间", isOn: $model.settings.dockIconVisible)
                             .labelsHidden()
                             .toggleStyle(.switch)
                     }
-                    HStack(spacing: 10) {
-                        Button("立即同步") { agentActivity.syncNow() }
-                            .buttonStyle(SettingsButtonStyle())
-                            .disabled(!model.settings.hapiSyncEnabled || agentActivity.status == .checking || agentActivity.status == .syncing)
-                        if offersHAPIInstall {
-                            Button(installButtonTitle) { model.installHAPI() }
-                                .buttonStyle(SettingsButtonStyle(prominent: true))
-                                .disabled(hapiInstaller.state.isBusy)
-                        }
-                        Button("选择 hapi…") { model.chooseHAPIPath() }
-                            .buttonStyle(SettingsButtonStyle())
-                        if !model.settings.hapiExecutablePath.isEmpty {
-                            Button("自动查找") { model.settings.hapiExecutablePath = "" }
-                                .buttonStyle(SettingsButtonStyle())
-                        }
-                        Spacer()
-                        Text("\(agentActivity.sessions.count) 个已存会话")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.secondary)
-                    }
-                    if hapiInstaller.state.isBusy {
-                        HStack(spacing: 10) {
-                            ProgressView().controlSize(.small)
-                            Text(hapiInstaller.state.title)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Palette.secondary)
-                        }
-                    } else if case .installed(let version, _) = hapiInstaller.state {
-                        Label("HAPI \(version) 已下载并通过 SHA-256 校验", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Palette.green)
-                    } else if case .failed(let message) = hapiInstaller.state {
-                        Text(message)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if offersHAPIInstall {
-                        Text("安装会从 HAPI 官方 GitHub Release 下载适合当前芯片的独立二进制，校验 SHA-256 后放到用户目录，不需要 npm、Homebrew 或管理员权限。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.secondary)
-                            .lineSpacing(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Text("只保存会话标题、项目路径、机器名称和工作时段，不保存 prompt、回复或代码内容。同步直接连接你自己的 HAPI Hub；同一会话重复同步会合并。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.secondary)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        if !model.settings.hapiExecutablePath.isEmpty {
-                            Text("手动指定：\(URL(fileURLWithPath: model.settings.hapiExecutablePath).lastPathComponent)")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(Palette.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Button("清除 Agent 历史") { state.confirmClearAgentHistory = true }
-                            .buttonStyle(SettingsButtonStyle())
-                            .disabled(agentActivity.sessions.isEmpty)
-                    }
-                }
-            }.card(padding: 25)
-            .alert("清除 Agent 历史？", isPresented: $state.confirmClearAgentHistory) {
-                Button("取消", role: .cancel) {}
-                Button("清除", role: .destructive) { agentActivity.clearSessions() }
-            } message: {
-                Text("只删除息间保存的 Agent 会话标题、项目路径和时段；HAPI Hub 中的原始会话不会受影响。")
+                }.card(padding: 25)
+                UpdateSettingsView(model: model, updater: model.updater)
             }
-            VStack(spacing: 22) {
-                HStack(spacing: 15) {
-                    LineIcon(systemName: "power").frame(width: 25).foregroundStyle(Palette.accent)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("登录后自动启动").font(.system(size: 14, weight: .medium))
-                        Text("登录后自动开始记录。").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3)
-                    }
-                    Spacer()
-                    Toggle("登录后自动启动", isOn: Binding(get: { model.loginEnabled }, set: { model.setLoginEnabled($0) })).labelsHidden().toggleStyle(.switch)
-                }
-                if let error = model.loginError { Text(error).font(.system(size: 12)).foregroundStyle(Color.orange) }
-                Divider().overlay(Palette.line)
-                HStack(spacing: 15) {
-                    LineIcon(systemName: "app.badge").frame(width: 25).foregroundStyle(Palette.accent)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("系统通知").font(.system(size: 14, weight: .medium))
-                        Text(model.notificationStatus).font(.system(size: 12)).foregroundStyle(Palette.secondary)
-                    }
-                    Spacer()
-                    if model.notificationAuthorized {
-                        Text("已允许").font(.system(size: 13)).foregroundStyle(Palette.green)
-                    } else {
-                        Button(model.notificationDenied ? "打开系统设置" : "允许通知") { model.enableNotifications() }
-                            .buttonStyle(SettingsButtonStyle())
-                    }
 
-                }
-                Divider().overlay(Palette.line)
-                HStack(spacing: 15) {
-                    LineIcon(systemName: "app-window")
-                        .frame(width: 25)
-                        .foregroundStyle(Palette.accent)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("在 Dock 中显示息间").font(.system(size: 14, weight: .medium))
-                        Text("关闭后只隐藏 Dock 图标，菜单栏入口、计时和提醒仍会正常工作。")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Palette.secondary)
-                            .lineSpacing(3)
-                    }
-                    Spacer()
-                    Toggle("在 Dock 中显示息间", isOn: $model.settings.dockIconVisible)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-            }.card(padding: 25)
-            HStack(spacing: 15) {
-                LineIcon(systemName: "pause.circle").font(.system(size: 24, weight: .light)).foregroundStyle(Palette.accent)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(model.engine.trackingPaused ? "使用统计已暂停" : "暂时不想记录？").font(.system(size: 14, weight: .medium))
-                    Text("暂停统计会保留历史与本轮进度，恢复后继续。").font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Button(model.engine.trackingPaused ? "恢复统计" : "暂停统计") { model.toggleTracking() }
-                    .buttonStyle(SettingsButtonStyle())
-            }.card(padding: 22)
-            VStack(spacing: 16) {
-                toggleRow("坐姿关照", "开启后显示坐姿页面。摄像头只在本机分析，支持后台监测与置顶提醒。", isOn: $model.settings.postureEnabled, icon: "person-standing")
-                if model.settings.postureEnabled {
-                    HStack {
-                        Text("先到坐姿页面完成校准，才会开始判断。").font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                        Spacer()
-                        Button("打开坐姿关照") { model.page = .posture }.buttonStyle(SettingsButtonStyle())
-                    }
-                }
-            }.card(padding: 25)
-            UpdateSettingsView(model: model, updater: model.updater)
             Text("息间 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1")")
                 .font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.horizontal, 5)
 
@@ -430,6 +587,7 @@ struct PreferencesView: View {
     private func toggleRow(_ title: String, _ subtitle: String, isOn: Binding<Bool>, icon: String) -> some View {
         HStack(spacing: 15) {
             LineIcon(systemName: icon).frame(width: 25).foregroundStyle(Palette.accent)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.system(size: 14, weight: .medium))
                 Text(subtitle).font(.system(size: 12)).foregroundStyle(Palette.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
@@ -455,4 +613,5 @@ struct PreferencesView: View {
 private final class PreferencesViewState: ObservableObject {
     @Published var confirmClearApplicationHistory = false
     @Published var confirmClearAgentHistory = false
+    @Published var showHAPIAdvanced = false
 }

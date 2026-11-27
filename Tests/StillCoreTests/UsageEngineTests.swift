@@ -202,6 +202,85 @@ struct UsageEngineTests {
         #expect(engine.reminderSerial == 2)
     }
 
+    @Test func courseFatigueLinkSavesAnExplicitOffSetting() throws {
+        var settings = MonitorSettings()
+        settings.linkCourseToFatigue = false
+        let data = try JSONEncoder().encode(settings)
+        let restored = try JSONDecoder().decode(MonitorSettings.self, from: data)
+        #expect(!restored.linkCourseToFatigue)
+    }
+
+    @Test func completedCourseClearsTheRestAndWaitsForANewFatigueThreshold() {
+        var settings = MonitorSettings()
+        settings.workMinutes = 1
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        engine.startRest(sample(60))
+        engine.startGuidedRest(sample(70), duration: 25)
+        engine.updateGuidedRest(elapsed: 10, completed: false, sample: sample(80))
+        #expect(engine.fatiguePercent == 58)
+        engine.updateGuidedRest(elapsed: 25, completed: true, sample: sample(95))
+        #expect(engine.phase == .working)
+        #expect(engine.restRemaining == 0)
+        #expect(engine.fatiguePercent == 0)
+        #expect(engine.completionSerial == 1)
+        #expect(engine.snoozeUntil == nil)
+        advance(&engine, from: 96, to: 154)
+        #expect(engine.reminderSerial == 1)
+        engine.tick(sample(155))
+        #expect(engine.reminderSerial == 2)
+    }
+
+    @Test func fixedRestCreditsPlaybackAndResumesOnlyTheRemainingTime() {
+        var settings = MonitorSettings()
+        settings.workMinutes = 1
+        settings.linkCourseToFatigue = false
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        engine.startRest(sample(60))
+        engine.startGuidedRest(sample(90), duration: 120)
+        engine.updateGuidedRest(elapsed: 120, completed: true, sample: sample(240))
+        #expect(engine.phase == .resting)
+        #expect(!engine.guidedRest)
+        #expect(engine.restRemaining == 150)
+        #expect(engine.fatiguePercent == 50)
+        #expect(engine.completionSerial == 0)
+        engine.tick(sample(390))
+        #expect(engine.phase == .working)
+        #expect(engine.fatiguePercent == 0)
+        #expect(engine.completionSerial == 1)
+    }
+
+    @Test func endingPartialCourseKeepsRecoveryAndShortensTheOriginalRest() {
+        var settings = MonitorSettings()
+        settings.workMinutes = 1
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        engine.startRest(sample(60))
+        engine.startGuidedRest(sample(60), duration: 120)
+        engine.updateGuidedRest(elapsed: 60, completed: false, sample: sample(120))
+        engine.stopGuidedRest(sample(120))
+        #expect(engine.fatiguePercent == 50)
+        #expect(engine.phase == .resting)
+        #expect(engine.restRemaining == 150)
+        #expect(engine.snoozeUntil == nil)
+    }
+
+    @Test func leavingACourseAtZeroFatigueDoesNotRestartRest() {
+        var settings = MonitorSettings()
+        settings.workMinutes = 1
+        var engine = UsageEngine(settings: settings)
+        advance(&engine, from: 0, to: 60)
+        engine.startRest(sample(60))
+        engine.startGuidedRest(sample(60), duration: 120)
+        engine.updateGuidedRest(elapsed: 120, completed: false, sample: sample(180))
+        engine.stopGuidedRest(sample(180))
+        #expect(engine.phase == .working)
+        #expect(engine.restRemaining == 0)
+        #expect(engine.snoozeUntil == nil)
+        #expect(engine.breaks.last?.outcome == .interrupted)
+    }
+
     @Test func testTrackingPausePreservesRoundAndExcludesPausedInterval() {
         var engine = UsageEngine()
         advance(&engine, from: 0, to: 30)
@@ -286,6 +365,7 @@ struct UsageEngineTests {
         let settings = try JSONDecoder().decode(MonitorSettings.self, from: data)
         #expect(settings.workMinutes == 25)
         #expect(settings.restMinutes == 7)
+        #expect(settings.linkCourseToFatigue)
         #expect(settings.remindersEnabled == false)
         #expect(settings.showMenuCountdown == false)
         #expect(settings.reminderStyle == .mini)

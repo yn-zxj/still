@@ -51,11 +51,12 @@ struct ReminderDisplayTests {
         #expect(screen.visibleFrame.contains(workout))
     }
     @Test func manualReminderCloseSnoozesOnlyUnfinishedStates() {
-        #expect(ReminderManualClosePolicy.shouldSnooze(.due))
-        #expect(ReminderManualClosePolicy.shouldSnooze(.resting))
-        #expect(!ReminderManualClosePolicy.shouldSnooze(.preview))
-        #expect(!ReminderManualClosePolicy.shouldSnooze(.completed))
-        #expect(!ReminderManualClosePolicy.shouldSnooze(nil))
+        #expect(ReminderManualClosePolicy.shouldSnooze(.due, phase: .due))
+        #expect(ReminderManualClosePolicy.shouldSnooze(.resting, phase: .resting))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(.preview, phase: .resting))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(.completed, phase: .working))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(nil, phase: .due))
+        #expect(!ReminderManualClosePolicy.shouldSnooze(.resting, phase: .working))
     }
     @Test func quickPanelChartUsesFineTwoHourAndTwentyPercentAxes() {
         #expect(MenuUsageChartAxis.activityPercents == [100, 80, 60, 40, 20, 0])

@@ -28,6 +28,7 @@ public enum AppearanceTheme: String, Codable, CaseIterable, Identifiable {
 public struct MonitorSettings: Codable, Equatable {
     public var workMinutes = 45
     public var restMinutes = 5
+    public var linkCourseToFatigue = true
     public var idleSeconds = 90
     public var snoozeMinutes = 5
     public var repeatMinutes = 5
@@ -55,7 +56,7 @@ public struct MonitorSettings: Codable, Equatable {
     public var showDailyTimeInReminder = true
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case workMinutes, restMinutes, idleSeconds, snoozeMinutes, repeatMinutes
+        case workMinutes, restMinutes, linkCourseToFatigue, idleSeconds, snoozeMinutes, repeatMinutes
         case remindersEnabled, soundEnabled, notificationsEnabled, motionEnabled, appearanceTheme, showMenuCountdown
         case coursesEnabled, postureEnabled, posturePlayful, postureThresholds, applicationInsightsEnabled
         case agentActivityEnabled, hapiSyncEnabled, hapiExecutablePath, dockIconVisible, automaticUpdateChecks
@@ -66,6 +67,7 @@ public struct MonitorSettings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         workMinutes = min(180, max(1, try c.decodeIfPresent(Int.self, forKey: .workMinutes) ?? workMinutes))
         restMinutes = min(30, max(1, try c.decodeIfPresent(Int.self, forKey: .restMinutes) ?? restMinutes))
+        linkCourseToFatigue = try c.decodeIfPresent(Bool.self, forKey: .linkCourseToFatigue) ?? linkCourseToFatigue
         idleSeconds = max(1, try c.decodeIfPresent(Int.self, forKey: .idleSeconds) ?? idleSeconds)
         snoozeMinutes = max(1, try c.decodeIfPresent(Int.self, forKey: .snoozeMinutes) ?? snoozeMinutes)
         repeatMinutes = max(1, try c.decodeIfPresent(Int.self, forKey: .repeatMinutes) ?? repeatMinutes)
@@ -252,21 +254,66 @@ public enum UsageStatistics {
 
     public static func daily(segments: [UsageSegment], breaks: [BreakRecord], endingAt date: Date,
                              days: Int, calendar: Calendar = .current) -> [DailySummary] {
+        guard days > 0 else { return [] }
         let today = calendar.startOfDay(for: date)
-        return (0..<days).reversed().compactMap { offset in
+        var dayIntervals: [DateInterval] = []
+        dayIntervals.reserveCapacity(days)
+        for offset in (0..<days).reversed() {
             guard let start = calendar.date(byAdding: .day, value: -offset, to: today),
-                  let end = calendar.date(byAdding: .day, value: 1, to: start) else { return nil }
-            let interval = DateInterval(start: start, end: end)
-            let total = segments.reduce(0) { $0 + $1.seconds(in: interval) }
-            let count = breaks.filter { $0.outcome == .completed && ($0.endedAt ?? $0.startedAt) >= start && ($0.endedAt ?? $0.startedAt) < end }.count
-            return DailySummary(date: start, seconds: total, completedBreaks: count)
+                  let end = calendar.date(byAdding: .day, value: 1, to: start) else { continue }
+            dayIntervals.append(DateInterval(start: start, end: end))
+        }
+        guard let windowStart = dayIntervals.first?.start,
+              let windowEnd = dayIntervals.last?.end else { return [] }
+
+        var totals = Array(repeating: 0.0, count: dayIntervals.count)
+        var counts = Array(repeating: 0, count: dayIntervals.count)
+
+        func bucketIndex(for timestamp: Date) -> Int {
+            let approx = Int(timestamp.timeIntervalSince(windowStart) / 86_400)
+            var index = min(max(0, approx), dayIntervals.count - 1)
+            while index > 0 && timestamp < dayIntervals[index].start { index -= 1 }
+            while index + 1 < dayIntervals.count && timestamp >= dayIntervals[index].end { index += 1 }
+            return index
+        }
+
+        for segment in segments where segment.seconds > 0 && segment.endedAt > segment.startedAt {
+            guard segment.endedAt > windowStart && segment.startedAt < windowEnd else { continue }
+            var index = bucketIndex(for: max(segment.startedAt, windowStart))
+            while index < dayIntervals.count {
+                let interval = dayIntervals[index]
+                if segment.endedAt <= interval.start { break }
+                totals[index] += segment.seconds(in: interval)
+                if segment.endedAt <= interval.end { break }
+                index += 1
+            }
+        }
+
+        for record in breaks where record.outcome == .completed {
+            let timestamp = record.endedAt ?? record.startedAt
+            guard timestamp >= windowStart && timestamp < windowEnd else { continue }
+            let index = bucketIndex(for: timestamp)
+            if timestamp >= dayIntervals[index].start && timestamp < dayIntervals[index].end {
+                counts[index] += 1
+            }
+        }
+
+        return dayIntervals.indices.map { index in
+            DailySummary(date: dayIntervals[index].start, seconds: totals[index], completedBreaks: counts[index])
         }
     }
 
     public static func longestRound(segments: [UsageSegment], on date: Date, calendar: Calendar = .current) -> Double {
         guard let interval = calendar.dateInterval(of: .day, for: date) else { return 0 }
-        return Dictionary(grouping: segments, by: \.roundID).values.map {
-            $0.reduce(0) { $0 + $1.seconds(in: interval) }
-        }.max() ?? 0
+        var byRound: [UUID: Double] = [:]
+        var longest = 0.0
+        for segment in segments where segment.seconds > 0 && segment.endedAt > interval.start && segment.startedAt < interval.end {
+            let seconds = segment.seconds(in: interval)
+            guard seconds > 0 else { continue }
+            let updated = (byRound[segment.roundID] ?? 0) + seconds
+            byRound[segment.roundID] = updated
+            if updated > longest { longest = updated }
+        }
+        return longest
     }
 }

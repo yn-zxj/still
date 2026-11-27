@@ -12,9 +12,9 @@ private final class ReminderContentState: ObservableObject {
 }
 
 enum ReminderManualClosePolicy {
-    static func shouldSnooze(_ presentation: RestPresentation?) -> Bool {
-        switch presentation {
-        case .due?, .resting?: true
+    static func shouldSnooze(_ presentation: RestPresentation?, phase: EnginePhase) -> Bool {
+        switch (presentation, phase) {
+        case (.due?, .due), (.resting?, .resting): true
         default: false
         }
     }
@@ -154,7 +154,6 @@ final class ReminderWindowController {
         if !preview { model.inReminderTraining = true }
         if course.media?.webpage != nil {
             player.stop()
-            if !preview { model.endRest() }
         } else if player.courseID != course.id || player.error != nil || player.finished {
             player.load(course, url: model.library.mediaURL(for: course))
         }
@@ -165,20 +164,29 @@ final class ReminderWindowController {
     private func back(in panel: RestPanel) {
         let preview = content.presentation == .preview
         let player = preview ? content.previewPlayer : model.coursePlayer
-        let wasActive = player.active
-        let wasWeb = content.course?.media?.webpage != nil
-        player.stop(); content.course = nil; model.inReminderTraining = false; trainingDisplayID = nil
-        if !preview && (wasActive || wasWeb) {
-            // Return to an actual running countdown, never a stale 00:00 view.
-            model.startRest()
-            return
+        player.stop()
+        content.course = nil; model.inReminderTraining = false; trainingDisplayID = nil
+        if !preview {
+            if model.engine.phase == .resting {
+                model.showRest?()
+                return
+            }
+            if model.engine.phase != .due {
+                close()
+                return
+            }
         }
         model.prepareRecommendation(preview: preview, shuffle: true)
         updateDisplays()
     }
     func dismissIfDue() { if current == .due && content.course == nil { close() } }
     private func dismissManually() {
-        if ReminderManualClosePolicy.shouldSnooze(current) { model.snooze() }
+        if content.course != nil, current != .preview, model.coursePlayer.active {
+            model.coursePlayer.stop()
+            if model.engine.phase == .resting { model.snooze() }
+        } else if content.course == nil || !model.coursePlayer.finished {
+            if ReminderManualClosePolicy.shouldSnooze(current, phase: model.engine.phase) { model.snooze() }
+        }
         close()
     }
     func applyAppearance(_ appearance: NSAppearance?) {

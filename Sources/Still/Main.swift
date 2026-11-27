@@ -18,12 +18,35 @@ struct StillMain {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+private final class PopoverVisibility: ObservableObject {
+    @Published var isShown = false
+}
+
+private struct PopoverMenuHost: View {
+    @ObservedObject var visibility: PopoverVisibility
+    let model: AppModel
+    let open: () -> Void
+    let insights: () -> Void
+    let settings: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        if visibility.isShown {
+            MenuPanelView(model: model, open: open, insights: insights, settings: settings, close: close)
+        } else {
+            Color.clear.frame(width: 500, height: 10)
+        }
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var model: AppModel!
     private var mainWindow: NSWindow!
     private var reminders: ReminderWindowController?
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private let popoverVisibility = PopoverVisibility()
     private let postureAlerts = PostureAlertController()
     private var visibilityObserver: NSObjectProtocol?
     private var popoverEventMonitors: [Any] = []
@@ -110,42 +133,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.mainMenu = menu
     }
 
+    private var effectiveMotionEnabled: Bool {
+        model.settings.motionEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private func closePopover() {
+        popover.animates = effectiveMotionEnabled
+        if popover.isShown { popover.performClose(nil) }
+        popoverVisibility.isShown = false
+    }
+
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = LineIcon.menuImage("eye")
+        statusItem.button?.image = LineIcon.menuImage("leaf")
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         statusItem.button?.target = self; statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.setAccessibilityLabel("息间快捷面板")
+        statusItem.button?.setAccessibilityLabel("息间")
+        statusItem.button?.setAccessibilityHelp("打开息间快捷面板")
         statusItem.button?.toolTip = nil
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: MenuPanelView(model: model,
-            open: { [weak self] in self?.popover.performClose(nil); self?.showMainWindow() },
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(rootView: PopoverMenuHost(
+            visibility: popoverVisibility,
+            model: model,
+            open: { [weak self] in self?.closePopover(); self?.showMainWindow() },
             insights: { [weak self] in
-                self?.popover.performClose(nil)
+                self?.closePopover()
                 self?.model.page = .insights
                 self?.showMainWindow()
             },
-            settings: { [weak self] in self?.popover.performClose(nil); self?.openSettings() },
-            close: { [weak self] in self?.popover.performClose(nil) }))
+            settings: { [weak self] in self?.closePopover(); self?.openSettings() },
+            close: { [weak self] in self?.closePopover() }
+        ))
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        popoverVisibility.isShown = false
     }
 
     private func refreshStatusItem() {
-        statusItem.button?.title = "  \(model.engine.fatiguePercent)%"
-        let symbol: String
-        switch model.engine.phase {
-        case .resting: symbol = "leaf.fill"
-        case .paused, .suspended: symbol = "pause.circle"
-        case .due: symbol = "sun.max"
-        default: symbol = "leaf"
-        }
+        let fatigue = model.engine.fatiguePercent
+        let phase = model.engine.phase
+        statusItem.button?.title = "  \(fatigue)%"
+        let symbol = StatusItemPresentation.symbol(for: phase)
         statusItem.button?.image = LineIcon.menuImage(symbol)
+        statusItem.button?.setAccessibilityLabel(
+            StatusItemPresentation.accessibilityLabel(
+                phase: phase,
+                fatiguePercent: fatigue,
+                remindersEnabled: model.settings.remindersEnabled
+            )
+        )
+        statusItem.button?.setAccessibilityHelp("打开息间快捷面板")
+        statusItem.button?.toolTip = nil
     }
 
     @objc private func togglePopover() {
-        if popover.isShown { popover.performClose(nil) }
-        else if let button = statusItem.button {
-            popover.animates = model.settings.motionEnabled && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        popover.animates = effectiveMotionEnabled
+        if popover.isShown {
+            popover.performClose(nil)
+            popoverVisibility.isShown = false
+        } else if let button = statusItem.button {
+            popoverVisibility.isShown = true
             NSApplication.shared.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
@@ -156,14 +206,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.popover.isShown else { return }
-                self.popover.performClose(nil)
+                self.closePopover()
             }
         }
         let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self, self.popover.isShown else { return event }
             if event.window === self.statusItem.button?.window { return event }
             if event.window !== self.popover.contentViewController?.view.window {
-                self.popover.performClose(nil)
+                self.closePopover()
             }
             return event
         }
@@ -211,10 +261,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         postureAlerts.show(issue: issue, playful: model.settings.posturePlayful,
             displaySeconds: model.settings.postureThresholds.displaySeconds, preview: preview)
     }
-    @objc private func checkUpdates() { model.page = .settings; showMainWindow(); model.updatesRequest += 1; model.updater.check() }
+    @objc private func checkUpdates() { closePopover(); model.page = .settings; showMainWindow(); model.updatesRequest += 1; model.updater.check() }
     private func showMainWindow() { mainWindow.makeKeyAndOrderFront(nil); NSApplication.shared.activate(ignoringOtherApps: true) }
-    @objc private func openMain() { showMainWindow() }
-    @objc private func openSettings() { model.page = .settings; showMainWindow() }
+    @objc private func openMain() { closePopover(); showMainWindow() }
+    @objc private func openSettings() { closePopover(); model.page = .settings; showMainWindow() }
     @objc private func showAbout() { NSApplication.shared.orderFrontStandardAboutPanel(options: [.applicationName: "息间", .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版", .credits: NSAttributedString(string: "给每一段专注，留一点余地。\n原生 macOS 用眼与休息提醒工具")]) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -228,6 +278,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverEventMonitors.forEach(NSEvent.removeMonitor)
         popoverEventMonitors.removeAll()
         model?.shutdown()
+    }
+}
+
+enum StatusItemPresentation {
+    static func symbol(for phase: EnginePhase) -> String {
+        switch phase {
+        case .resting: return "timer"
+        case .paused, .suspended: return "pause.circle"
+        case .due: return "sun.max"
+        default: return "leaf"
+        }
+    }
+
+    static func accessibilityLabel(phase: EnginePhase, fatiguePercent: Int, remindersEnabled: Bool) -> String {
+        let reminderNote = remindersEnabled ? "" : "，提醒已暂停"
+        return "息间，\(phase.title)，疲劳值 \(fatiguePercent)%\(reminderNote)"
     }
 }
 

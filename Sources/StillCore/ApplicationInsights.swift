@@ -163,19 +163,30 @@ public struct ApplicationInsights: Equatable {
     }
 
     public static func make(segments: [ApplicationUsageSegment], interval: DateInterval) -> ApplicationInsights {
-        let clipped = segments.compactMap { segment -> ApplicationUsageSegment? in
+        var clipped: [ApplicationUsageSegment] = []
+        var alreadySorted = true
+        var lastStartedAt: Date?
+        for segment in segments where segment.seconds > 0 && segment.endedAt > interval.start && segment.startedAt < interval.end {
             let seconds = segment.seconds(in: interval)
-            guard seconds > 0 else { return nil }
-            return ApplicationUsageSegment(
-                id: segment.id,
-                startedAt: max(segment.startedAt, interval.start),
-                endedAt: min(segment.endedAt, interval.end),
-                seconds: seconds,
-                bundleID: segment.bundleID,
-                applicationName: segment.applicationName,
-                category: segment.category
+            guard seconds > 0 else { continue }
+            let clippedStart = max(segment.startedAt, interval.start)
+            if let lastStartedAt, clippedStart < lastStartedAt { alreadySorted = false }
+            lastStartedAt = clippedStart
+            clipped.append(
+                ApplicationUsageSegment(
+                    id: segment.id,
+                    startedAt: clippedStart,
+                    endedAt: min(segment.endedAt, interval.end),
+                    seconds: seconds,
+                    bundleID: segment.bundleID,
+                    applicationName: segment.applicationName,
+                    category: segment.category
+                )
             )
-        }.sorted { $0.startedAt < $1.startedAt }
+        }
+        if !alreadySorted {
+            clipped.sort { $0.startedAt < $1.startedAt }
+        }
 
         var applications: [String: ApplicationTime] = [:]
         var categories: [ApplicationCategory: Double] = [:]
@@ -229,16 +240,50 @@ public struct ApplicationInsights: Equatable {
 
     public static func daily(segments: [ApplicationUsageSegment], endingAt date: Date,
                              days: Int, calendar: Calendar = .current) -> [DailyCategoryTime] {
+        guard days > 0 else { return [] }
         let today = calendar.startOfDay(for: date)
-        return (0..<days).reversed().flatMap { offset -> [DailyCategoryTime] in
+        var dayIntervals: [DateInterval] = []
+        dayIntervals.reserveCapacity(days)
+        for offset in (0..<days).reversed() {
             guard let start = calendar.date(byAdding: .day, value: -offset, to: today),
-                  let end = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
-            let interval = DateInterval(start: start, end: end)
-            var totals: [ApplicationCategory: Double] = [:]
-            for segment in segments where segment.seconds(in: interval) > 0 {
-                totals[segment.category, default: 0] += segment.seconds(in: interval)
-            }
-            return totals.map { DailyCategoryTime(date: start, category: $0.key, seconds: $0.value) }
+                  let end = calendar.date(byAdding: .day, value: 1, to: start) else { continue }
+            dayIntervals.append(DateInterval(start: start, end: end))
         }
+        guard let windowStart = dayIntervals.first?.start,
+              let windowEnd = dayIntervals.last?.end else { return [] }
+
+        var buckets: [[ApplicationCategory: Double]] = Array(repeating: [:], count: dayIntervals.count)
+
+        func bucketIndex(for timestamp: Date) -> Int {
+            let approx = Int(timestamp.timeIntervalSince(windowStart) / 86_400)
+            var index = min(max(0, approx), dayIntervals.count - 1)
+            while index > 0 && timestamp < dayIntervals[index].start { index -= 1 }
+            while index + 1 < dayIntervals.count && timestamp >= dayIntervals[index].end { index += 1 }
+            return index
+        }
+
+        for segment in segments where segment.seconds > 0 && segment.endedAt > segment.startedAt {
+            guard segment.endedAt > windowStart && segment.startedAt < windowEnd else { continue }
+            var index = bucketIndex(for: max(segment.startedAt, windowStart))
+            while index < dayIntervals.count {
+                let interval = dayIntervals[index]
+                if segment.endedAt <= interval.start { break }
+                let span = segment.seconds(in: interval)
+                if span > 0 {
+                    buckets[index][segment.category, default: 0] += span
+                }
+                if segment.endedAt <= interval.end { break }
+                index += 1
+            }
+        }
+
+        var result: [DailyCategoryTime] = []
+        for index in dayIntervals.indices {
+            let start = dayIntervals[index].start
+            for (category, seconds) in buckets[index] {
+                result.append(DailyCategoryTime(date: start, category: category, seconds: seconds))
+            }
+        }
+        return result
     }
 }

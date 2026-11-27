@@ -7,7 +7,6 @@ struct CourseSeekBar: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         var controller: CoursePlayer
-        var wasPlaying = false
         init(_ controller: CoursePlayer) { self.controller = controller }
         @objc func changed(_ slider: CourseSeekSlider) { controller.seek(to: slider.doubleValue) }
     }
@@ -16,6 +15,7 @@ struct CourseSeekBar: NSViewRepresentable {
         let slider = CourseSeekSlider(value: 0, minValue: 0, maxValue: 1, target: context.coordinator, action: #selector(Coordinator.changed(_:)))
         slider.isContinuous = false
         slider.setAccessibilityLabel("播放进度")
+        slider.setAccessibilityHelp("按左右方向键前后跳转 5 秒，按空格键播放或暂停")
         slider.toolTip = "点击或拖动跳转 · ← / → 前后 5 秒 · 空格播放或暂停"
         slider.toggle = { controller.toggle() }
         return slider
@@ -25,8 +25,9 @@ struct CourseSeekBar: NSViewRepresentable {
         slider.maxValue = max(1, controller.duration)
         slider.isEnabled = controller.duration > 0 && !controller.loading && controller.error == nil
         if !slider.tracking { slider.doubleValue = controller.position }
-        if controller.playing && !context.coordinator.wasPlaying { slider.window?.makeFirstResponder(slider) }
-        context.coordinator.wasPlaying = controller.playing
+        slider.setAccessibilityValueDescription(
+            controller.duration > 0 ? "\(clockText(controller.position)) / \(clockText(controller.duration))" : "尚未就绪"
+        )
     }
 }
 

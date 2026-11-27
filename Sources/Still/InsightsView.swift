@@ -20,16 +20,35 @@ private enum InsightsRange: Int, CaseIterable, Identifiable {
         let start = calendar.date(byAdding: .day, value: 1 - rawValue, to: today) ?? today
         return DateInterval(start: start, end: max(start.addingTimeInterval(1), now))
     }
+
+    func dateSpanText(now: Date, calendar: Calendar = .current) -> String {
+        let today = calendar.startOfDay(for: now)
+        if self == .today {
+            return now.formatted(.dateTime.month(.wide).day().weekday(.wide))
+        }
+        let start = calendar.date(byAdding: .day, value: 1 - rawValue, to: today) ?? today
+        let startText = start.formatted(.dateTime.month(.defaultDigits).day())
+        let endText = today.formatted(.dateTime.month(.defaultDigits).day())
+        return "\(startText)–\(endText)"
+    }
+}
+
+private enum InsightsDisplayState {
+    case hasDetails(recordingEnabled: Bool)
+    case onlyAgent(recordingEnabled: Bool)
+    case disabledNoDetails
+    case waitingForDetails
 }
 
 @MainActor
 private final class InsightsViewState: ObservableObject {
     @Published var range = InsightsRange.today
-    @Published var appeared = false
+    @Published var agentExpandedOverride: Bool? = nil
 }
 
 struct InsightsView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var statsClock: StatsClock
     @ObservedObject private var agentActivity: AgentActivityCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var state = InsightsViewState()
@@ -37,81 +56,106 @@ struct InsightsView: View {
     @MainActor
     init(model: AppModel) {
         self.model = model
+        _statsClock = ObservedObject(wrappedValue: model.statsClock)
         _agentActivity = ObservedObject(wrappedValue: model.agentActivity)
     }
 
-    private var insights: ApplicationInsights {
-        ApplicationInsights.make(
-            segments: model.engine.applicationSegments,
-            interval: state.range.interval(now: model.engine.now)
-        )
-    }
-
-    private var usageTotal: Double {
-        UsageStatistics.daily(
-            segments: model.engine.segments,
-            breaks: model.engine.breaks,
-            endingAt: model.engine.now,
-            days: state.range.rawValue
-        ).reduce(0) { $0 + $1.seconds }
-    }
-
-    private var dailyCategories: [DailyCategoryTime] {
-        ApplicationInsights.daily(
-            segments: model.engine.applicationSegments,
-            endingAt: model.engine.now,
-            days: state.range.rawValue
-        )
-    }
-
-    private var displayedTotal: Double {
-        insights.totalSeconds > 0 ? insights.totalSeconds : usageTotal
-    }
-
-    private var agentSummary: AgentActivitySummary {
-        AgentActivitySummary.make(
-            sessions: model.settings.agentActivityEnabled ? agentActivity.sessions : [],
-            interval: state.range.interval(now: model.engine.now)
-        )
+    private var hasAnyAppHistory: Bool {
+        !model.engine.applicationSegments.isEmpty
     }
 
     private var animated: Bool { model.settings.motionEnabled && !reduceMotion }
 
+    private func displayState(data: ApplicationInsights, agent: AgentActivitySummary) -> InsightsDisplayState {
+        let enabled = model.settings.applicationInsightsEnabled
+        if data.totalSeconds > 0 {
+            return .hasDetails(recordingEnabled: enabled)
+        }
+        if model.settings.agentActivityEnabled && !agent.sessions.isEmpty {
+            return .onlyAgent(recordingEnabled: enabled)
+        }
+        return enabled ? .waitingForDetails : .disabledNoDetails
+    }
+
     var body: some View {
-        let data = insights
+        let _ = statsClock.revision
+        let now = model.engine.now
+        let interval = state.range.interval(now: now)
+        let data = ApplicationInsights.make(
+            segments: model.engine.applicationSegments,
+            interval: interval
+        )
+        let usageTotal = UsageStatistics.daily(
+            segments: model.engine.segments,
+            breaks: model.engine.breaks,
+            endingAt: now,
+            days: state.range.rawValue
+        ).reduce(0) { $0 + $1.seconds }
+        let agent = AgentActivitySummary.make(
+            sessions: model.settings.agentActivityEnabled ? agentActivity.sessions : [],
+            interval: interval
+        )
+        let mode = displayState(data: data, agent: agent)
+
         VStack(alignment: .leading, spacing: 22) {
-            header
-            hero(data)
-                .opacity(state.appeared ? 1 : 0)
-                .offset(y: state.appeared ? 0 : 8)
-            facts(data)
-                .opacity(state.appeared ? 1 : 0)
-                .offset(y: state.appeared ? 0 : 10)
-            agentWork(agentSummary)
-            timeline(data)
-            BreakdownCardsLayout(spacing: 16, trailingWidth: 300) {
-                applicationBreakdown(data)
-                categoryBreakdown(data)
+            header(now: now)
+            hero(data: data, agent: agent, usageTotal: usageTotal, mode: mode)
+
+            switch mode {
+            case .hasDetails:
+                facts(data)
+                if model.settings.agentActivityEnabled {
+                    agentWork(agent)
+                }
+                timeline(data: data, agent: agent, now: now)
+                BreakdownCardsLayout(spacing: 16, trailingWidth: 300) {
+                    applicationBreakdown(data)
+                    categoryBreakdown(data)
+                }
+            case .onlyAgent(let recordingEnabled):
+                if model.settings.agentActivityEnabled {
+                    agentWork(agent)
+                }
+                if state.range == .today {
+                    timeline(data: data, agent: agent, now: now)
+                }
+                singleAppEmptyCard(
+                    recordingEnabled: recordingEnabled,
+                    hasAgentInRange: true
+                )
+            case .disabledNoDetails:
+                singleAppEmptyCard(
+                    recordingEnabled: false,
+                    hasAgentInRange: false
+                )
+                if model.settings.agentActivityEnabled {
+                    agentWork(agent)
+                }
+            case .waitingForDetails:
+                singleAppEmptyCard(
+                    recordingEnabled: true,
+                    hasAgentInRange: false
+                )
+                if model.settings.agentActivityEnabled {
+                    agentWork(agent)
+                }
             }
+
             privacyNote
         }
-        .onAppear {
-            guard !state.appeared else { return }
-            withAnimation(animated ? .easeOut(duration: 0.38) : nil) { state.appeared = true }
-        }
         .onChange(of: state.range) { _ in
-            guard animated else { return }
-            withAnimation(.easeInOut(duration: 0.22)) { state.appeared = true }
+            state.agentExpandedOverride = nil
         }
     }
 
-    private var header: some View {
+    private func header(now: Date) -> some View {
         HStack(alignment: .bottom, spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("时间去向")
                     .font(.system(size: 30, weight: .semibold, design: .rounded))
                     .tracking(-0.7)
-                Text(subtitle)
+                    .accessibilityAddTraits(.isHeader)
+                Text(subtitle(now: now))
                     .font(.system(size: 14))
                     .foregroundStyle(Palette.secondary)
             }
@@ -120,50 +164,45 @@ struct InsightsView: View {
                 Text(item.title)
             }
             .frame(width: 260)
+            .accessibilityLabel("统计时段")
         }
     }
 
-    private var subtitle: String {
+    private func subtitle(now: Date) -> String {
+        let span = state.range.dateSpanText(now: now)
         if state.range == .today {
-            return model.engine.now.formatted(.dateTime.month(.wide).day().weekday(.wide))
+            return span
         }
-        return "\(state.range.title)的前台应用停留分布"
+        return "\(span) · 前台应用停留分布"
     }
 
-    private func hero(_ data: ApplicationInsights) -> some View {
+    private func hero(data: ApplicationInsights, agent: AgentActivitySummary, usageTotal: Double, mode: InsightsDisplayState) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(data.totalSeconds > 0 ? "屏幕时间去了哪里" : "从这一版开始，看见时间流向")
+                    Text(heroEyebrow(mode))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Palette.accentDark)
-                    Text(durationText(displayedTotal))
+                    Text(heroPrimaryMetric(data: data, agent: agent, usageTotal: usageTotal, mode: mode))
                         .font(.system(size: 46, weight: .medium, design: .rounded))
                         .tracking(-1.5)
                         .monospacedDigit()
-                    Text(headline(data))
+                    Text(heroHeadline(data: data, agent: agent, usageTotal: usageTotal, mode: mode))
                         .font(.system(size: 14))
                         .foregroundStyle(Palette.secondary)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 20)
-                coverageBadge(data)
+                heroBadge(data: data, agent: agent, usageTotal: usageTotal, mode: mode)
             }
+
             if data.totalSeconds > 0 {
-                CategoryBar(entries: data.byCategory, total: data.totalSeconds)
-                    .frame(height: 13)
-                categoryLegend(data.byCategory, total: data.totalSeconds)
-            } else {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Palette.surface.opacity(0.7))
-                    .frame(height: 13)
-                    .overlay(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Palette.accent.opacity(0.18))
-                            .frame(maxWidth: usageTotal > 0 ? .infinity : 0)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                VStack(alignment: .leading, spacing: 12) {
+                    CategoryBar(entries: data.byCategory, total: data.totalSeconds)
+                        .frame(height: 13)
+                    categoryLegend(data.byCategory, total: data.totalSeconds)
+                }
             }
         }
         .padding(27)
@@ -181,24 +220,99 @@ struct InsightsView: View {
         )
     }
 
-    private func headline(_ data: ApplicationInsights) -> String {
-        guard let top = data.byApplication.first else {
-            return usageTotal > 0
-                ? "已有总使用时长；应用明细会从新版本开始本地积累。"
-                : "开始使用 Mac 后，这里会逐渐长出一条属于你的时间流。"
+    private func heroEyebrow(_ mode: InsightsDisplayState) -> String {
+        switch mode {
+        case .hasDetails(let recordingEnabled):
+            return recordingEnabled ? "\(state.range.title)屏幕时间去向" : "\(state.range.title)历史应用明细 · 已停止新记录"
+        case .onlyAgent(let recordingEnabled):
+            return recordingEnabled ? "\(state.range.title)仅有 Agent 工作记录" : "前台应用记录已关闭 · 仅显示 Agent"
+        case .disabledNoDetails:
+            return "前台应用记录已关闭"
+        case .waitingForDetails:
+            return "\(state.range.title)尚未积累应用明细"
         }
-        return "\(top.name) 占了最多时间，共 \(durationText(top.seconds))。"
     }
 
-    private func coverageBadge(_ data: ApplicationInsights) -> some View {
-        VStack(alignment: .trailing, spacing: 7) {
-            Text(data.totalSeconds > 0 ? "应用明细覆盖" : "总使用时长")
+    private func heroPrimaryMetric(data: ApplicationInsights, agent: AgentActivitySummary, usageTotal: Double, mode: InsightsDisplayState) -> String {
+        switch mode {
+        case .hasDetails:
+            return durationText(data.totalSeconds)
+        case .onlyAgent:
+            return durationText(agent.wallSeconds)
+        case .disabledNoDetails, .waitingForDetails:
+            return durationText(usageTotal)
+        }
+    }
+
+    private func heroHeadline(data: ApplicationInsights, agent: AgentActivitySummary, usageTotal: Double, mode: InsightsDisplayState) -> String {
+        switch mode {
+        case .hasDetails(let recordingEnabled):
+            let topLine: String
+            if let top = data.byApplication.first {
+                topLine = "\(top.name) 占了最多时间，共 \(durationText(top.seconds))（\(insightPercent(top.seconds, of: data.totalSeconds))）。"
+            } else {
+                topLine = "已记录 \(data.applicationCount) 个前台应用的停留时长。"
+            }
+            return recordingEnabled ? topLine : "\(topLine)当前已关闭记录，仅展示已保留的历史明细。"
+        case .onlyAgent(let recordingEnabled):
+            let base = "\(agent.sessions.count) 个 Agent 会话，合计会话工作 \(durationText(agent.sessionSeconds))。"
+            return recordingEnabled
+                ? "\(base)\(state.range.title)暂无前台应用明细。"
+                : "\(base)前台应用记录已在偏好设置中关闭。"
+        case .disabledNoDetails:
+            if hasAnyAppHistory {
+                return "\(state.range.title)没有已保存的前台应用明细；其他时段的历史仍已保留，可切换时段查看或在偏好设置中重新开启。"
+            }
+            if usageTotal > 0 {
+                return "息间仍正常累计总使用时长，但已停止记录前台应用明细。"
+            }
+            return "前台应用记录已在偏好设置中关闭；开启后会在本机记录应用与类别分布。"
+        case .waitingForDetails:
+            if usageTotal > 0 {
+                return "息间总计时已有记录，但\(state.range.title)尚未采到前台应用明细；继续使用应用后会自动汇总到这里。"
+            }
+            return "开始使用 Mac 后，这里会自动汇总前台应用的停留时段与类别分布。"
+        }
+    }
+
+    private func heroBadge(data: ApplicationInsights, agent: AgentActivitySummary, usageTotal: Double, mode: InsightsDisplayState) -> some View {
+        let title: String
+        let value: String
+        let caption: String
+
+        switch mode {
+        case .hasDetails(let recordingEnabled):
+            title = "应用明细覆盖"
+            value = coverageText(data, usageTotal: usageTotal)
+            caption = recordingEnabled ? "与息间总计时相比" : "历史记录 · 新记录已停"
+        case .onlyAgent:
+            if usageTotal > 0 {
+                title = "息间总计时"
+                value = durationText(usageTotal)
+                caption = "不含前台应用拆分"
+            } else {
+                title = "Agent 会话"
+                value = "\(agent.sessions.count) 个"
+                caption = agent.hostCount > 0 ? "含 \(agent.hostCount) 台远程机器" : "均为本机会话"
+            }
+        case .disabledNoDetails:
+            title = "记录状态"
+            value = "已关闭"
+            caption = hasAnyAppHistory ? "已有历史已保留" : "仅统计总时长"
+        case .waitingForDetails:
+            title = "记录状态"
+            value = "等待积累"
+            caption = hasAnyAppHistory ? "其他时段已有历史" : "已开启本机记录"
+        }
+
+        return VStack(alignment: .trailing, spacing: 7) {
+            Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Palette.secondary)
-            Text(data.totalSeconds > 0 ? coverageText(data) : durationText(usageTotal))
+            Text(value)
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-            Text(data.totalSeconds > 0 ? "与息间总计时相比" : "尚无应用明细")
+            Text(caption)
                 .font(.system(size: 11))
                 .foregroundStyle(Palette.secondary)
         }
@@ -209,17 +323,17 @@ struct InsightsView: View {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .stroke(Palette.line.opacity(0.8), lineWidth: 1)
         )
+        .accessibilityElement(children: .combine)
     }
 
-    private func coverageText(_ data: ApplicationInsights) -> String {
+    private func coverageText(_ data: ApplicationInsights, usageTotal: Double) -> String {
         guard usageTotal > 0 else { return "0%" }
         return insightPercent(data.totalSeconds, of: usageTotal)
     }
 
     private func categoryLegend(_ entries: [CategoryTime], total: Double) -> some View {
-        let visible = entries.prefix(5)
-        return HStack(spacing: 18) {
-            ForEach(Array(visible)) { entry in
+        InsightsWrapLayout(spacing: 14, lineSpacing: 8) {
+            ForEach(entries) { entry in
                 HStack(spacing: 7) {
                     Circle().fill(entry.category.color).frame(width: 7, height: 7)
                     Text(entry.category.title)
@@ -229,32 +343,101 @@ struct InsightsView: View {
                 }
                 .font(.system(size: 12))
                 .lineLimit(1)
+                .accessibilityElement(children: .combine)
             }
-            Spacer(minLength: 0)
         }
     }
 
+    private func singleAppEmptyCard(recordingEnabled: Bool, hasAgentInRange: Bool) -> some View {
+        let heading: String
+        let detail: String
+        let icon: String
+
+        if !recordingEnabled {
+            icon = "eye"
+            heading = hasAnyAppHistory ? "\(state.range.title)暂无已保存的应用明细" : "已关闭前台应用记录"
+            detail = hasAnyAppHistory
+                ? "当前已停止记录新的应用与类别分布，此前积累的历史仍保存在本机。可切换至近 7 天或近 28 天查看，或前往偏好设置重新开启。"
+                : "关闭开关后不会采集前台应用名称与类别构成，总使用时长与休息记录仍正常保留。"
+        } else if hasAgentInRange {
+            icon = "chart-line"
+            heading = "\(state.range.title)暂无前台应用明细"
+            detail = hasAnyAppHistory && state.range == .today
+                ? "今日尚未记录到前台应用停留，上方已展示 Agent 工作时段。你也可以切换至近 7 天查看历史应用分布。"
+                : "已开启本机前台应用记录；继续切换或使用桌面应用后，应用排行与类别构成会自动显示在这里。"
+        } else {
+            icon = "chart-line"
+            heading = "\(state.range.title)还没有应用与类别明细"
+            detail = hasAnyAppHistory && state.range == .today
+                ? "今天还没有记录到前台应用停留，近 7 天或近 28 天已有历史数据。继续使用 Mac 后，今天的时间流会自动出现。"
+                : "时间去向已开启，正常使用桌面应用一段时间后，这里会自动生成时间流、应用排行与类别构成。"
+        }
+
+        return HStack(alignment: .center, spacing: 16) {
+            LineIcon(systemName: icon, size: 22)
+                .foregroundStyle(Palette.accent)
+                .frame(width: 44, height: 44)
+                .background(Palette.lavender, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(heading)
+                    .font(.system(size: 15, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text(detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            HStack(spacing: 10) {
+                if hasAnyAppHistory && state.range == .today {
+                    Button("查看近 7 天") {
+                        withAnimation(animated ? .easeInOut(duration: 0.2) : nil) {
+                            state.range = .week
+                        }
+                    }
+                    .buttonStyle(SettingsButtonStyle())
+                }
+                if !recordingEnabled {
+                    Button("前往偏好设置") {
+                        model.page = .settings
+                    }
+                    .buttonStyle(SettingsButtonStyle(prominent: true))
+                }
+            }
+        }
+        .card(padding: 22)
+    }
+
     private func facts(_ data: ApplicationInsights) -> some View {
-        HStack(spacing: 16) {
+        let switchValue = "\(data.switches) 次"
+        let switchDetail: String
+        if data.switches == 0 && data.applicationCount <= 1 {
+            switchDetail = "当前仅停留在一个应用"
+        } else if data.totalSeconds >= 600 {
+            switchDetail = String(format: "每小时约 %.0f 次", data.switchesPerHour)
+        } else {
+            switchDetail = "积累十分钟后显示频率"
+        }
+
+        return HStack(spacing: 16) {
             factCard(
                 icon: "app-window",
                 title: "停留最久",
-                value: data.byApplication.first?.name ?? "等待记录",
+                value: data.byApplication.first?.name ?? "—",
                 detail: data.byApplication.first.map { durationText($0.seconds) } ?? "应用名称只保存在本机"
             )
             factCard(
                 icon: "arrow-left-right",
                 title: "应用切换",
-                value: data.switches == 0 ? "平稳" : "\(data.switches) 次",
-                detail: data.totalSeconds >= 600
-                    ? String(format: "每小时约 %.0f 次", data.switchesPerHour)
-                    : "积累十分钟后显示频率"
+                value: switchValue,
+                detail: switchDetail
             )
             factCard(
                 icon: "timer",
                 title: "最长停留",
                 value: durationText(data.longestApplicationStretch),
-                detail: data.applicationCount == 0 ? "还没有应用明细" : "连续使用同一应用"
+                detail: "连续使用同一应用"
             )
         }
     }
@@ -267,8 +450,11 @@ struct InsightsView: View {
                 .background(Palette.lavender, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
-                Text(value).font(.system(size: 18, weight: .semibold, design: .rounded)).lineLimit(1)
-                Text(detail).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1)
+                Text(value)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                Text(detail).font(.system(size: 12)).foregroundStyle(Palette.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -279,83 +465,177 @@ struct InsightsView: View {
             RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .stroke(Palette.line.opacity(0.8), lineWidth: 1)
         )
+        .accessibilityElement(children: .combine)
     }
 
     private func agentWork(_ summary: AgentActivitySummary) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Agent 工作时间")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("来自 HAPI Hub；同一会话重复同步只计算一次，等待你回复的时间不计入。")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.secondary)
+        let hasSessions = !summary.sessions.isEmpty
+        let isExpanded = state.agentExpandedOverride ?? hasSessions
+        let statusDotColor: Color = {
+            if !model.settings.hapiSyncEnabled { return Palette.secondary }
+            if agentActivity.status.isError { return insightsWarningColor }
+            if agentActivity.status.isHealthy { return Palette.green }
+            return Palette.secondary
+        }()
+        let statusTitle = model.settings.hapiSyncEnabled ? agentActivity.status.title : "同步已关闭"
+        let statusTextColor = (model.settings.hapiSyncEnabled && agentActivity.status.isError) ? insightsWarningColor : Palette.secondary
+
+        return VStack(alignment: .leading, spacing: isExpanded ? 16 : 0) {
+            Button {
+                withAnimation(animated ? .easeInOut(duration: 0.18) : nil) {
+                    state.agentExpandedOverride = !isExpanded
                 }
-                Spacer()
-                if model.settings.agentActivityEnabled && model.settings.hapiSyncEnabled {
+            } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    LineIcon(systemName: "terminal", size: 16)
+                        .foregroundStyle(Palette.accent)
+                        .accessibilityHidden(true)
+                    Text("Agent 工作时间")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    if !isExpanded && hasSessions {
+                        Text("\(durationText(summary.wallSeconds)) · \(summary.sessions.count) 个会话")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                    } else if !isExpanded && !hasSessions {
+                        Text("\(state.range.title)暂无会话")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 10)
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(agentActivity.status.isError ? Color.orange : agentActivity.status.isHealthy ? Palette.green : Palette.secondary)
+                            .fill(statusDotColor)
                             .frame(width: 6, height: 6)
-                        Text(agentActivity.status.title)
+                        Text(statusTitle)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(agentActivity.status.isError ? Color.orange : Palette.secondary)
+                            .foregroundStyle(statusTextColor)
                             .lineLimit(1)
                     }
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 6)
                     .background(Palette.background, in: Capsule())
-                }
-            }
-
-            if !model.settings.agentActivityEnabled {
-                agentEmpty("Agent 时间已在偏好设置中关闭。")
-            } else if summary.sessions.isEmpty {
-                agentEmpty(
-                    model.settings.hapiSyncEnabled
-                        ? "还没有可展示的 HAPI 会话；安装并登录 HAPI 后会在这里汇总本机与其它机器。"
-                        : "HAPI 同步已关闭；已有 Agent 历史仍会保留。"
-                )
-            } else {
-                HStack(spacing: 12) {
-                    agentMetric(
-                        title: "Agent 墙钟时间",
-                        value: durationText(summary.wallSeconds),
-                        note: "按时间并集计算"
-                    )
-                    agentMetric(
-                        title: "会话工作时长",
-                        value: durationText(summary.sessionSeconds),
-                        note: "\(summary.sessions.count) 个会话"
-                    )
-                    agentMetric(
-                        title: "另一台机器",
-                        value: "\(summary.hostCount) 台",
-                        note: summary.hostCount == 0 ? "本次都是本机会话" : "远程 Agent 已接入"
-                    )
-                }
-
-                VStack(spacing: 10) {
-                    ForEach(Array(summary.sessions.prefix(6))) { session in
-                        agentSessionRow(session)
-                    }
-                }
-
-                if summary.sessions.count > 6 {
-                    Text("另有 \(summary.sessions.count - 6) 个 Agent 会话")
-                        .font(.system(size: 11))
+                    LineIcon(systemName: "chevron-down", size: 13)
                         .foregroundStyle(Palette.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Agent 工作时间，\(statusTitle)")
+            .accessibilityValue(isExpanded ? "已展开" : "已收起")
+            .accessibilityHint(isExpanded ? "点击收起 Agent 工作时间卡片" : "点击展开查看说明与配置引导")
+
+            if isExpanded {
+                Divider().overlay(Palette.line)
+
+                Text("来自 HAPI Hub；同一会话重复同步只计算一次，等待你回复的时间不计入。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if summary.sessions.isEmpty {
+                    agentEmptyGuidance
+                } else {
+                    HStack(spacing: 12) {
+                        agentMetric(
+                            title: "Agent 墙钟时间",
+                            value: durationText(summary.wallSeconds),
+                            note: "按时间并集计算"
+                        )
+                        agentMetric(
+                            title: "会话工作时长",
+                            value: durationText(summary.sessionSeconds),
+                            note: "\(summary.sessions.count) 个会话"
+                        )
+                        agentMetric(
+                            title: "另一台机器",
+                            value: "\(summary.hostCount) 台",
+                            note: summary.hostCount == 0 ? "本次都是本机会话" : "远程 Agent 已接入"
+                        )
+                    }
+
+                    VStack(spacing: 10) {
+                        ForEach(Array(summary.sessions.prefix(6))) { session in
+                            agentSessionRow(session, interval: summary.interval)
+                        }
+                    }
+
+                    if summary.sessions.count > 6 {
+                        Text("另有 \(summary.sessions.count - 6) 个 Agent 会话")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                    }
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .card(padding: 24)
+        .padding(.horizontal, isExpanded ? 24 : 20)
+        .padding(.vertical, isExpanded ? 20 : 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: isExpanded ? 22 : 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: isExpanded ? 22 : 18, style: .continuous)
+                .stroke(Palette.line.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private var agentEmptyGuidance: some View {
+        let message: String
+        let primaryActionTitle: String?
+        let showsSyncButton: Bool
+
+        if !model.settings.hapiSyncEnabled {
+            message = "HAPI 同步已关闭；已有 Agent 历史仍会保留。可在偏好设置中重新开启同步或关闭本模块。"
+            primaryActionTitle = "前往偏好设置"
+            showsSyncButton = false
+        } else {
+            switch agentActivity.status {
+            case .notInstalled, .cliTooOld:
+                message = "\(state.range.title)还没有可展示的 HAPI 会话；前往偏好设置安装或更新 hapi 并登录后，会自动汇总本机与其它机器。"
+                primaryActionTitle = "前往安装与配置"
+                showsSyncButton = false
+            case .notSignedIn:
+                message = "HAPI 尚未登录。在终端完成 hapi 登录后点击立即同步，即可汇总本机与其它机器的 Agent 会话；若暂不使用，可在偏好设置关闭此模块。"
+                primaryActionTitle = "前往偏好设置"
+                showsSyncButton = true
+            default:
+                message = "\(state.range.title)还没有可展示的 HAPI 会话；使用接入 HAPI 的 Agent 后会自动汇总到这里。"
+                primaryActionTitle = "偏好设置"
+                showsSyncButton = true
+            }
+        }
+
+        return HStack(alignment: .center, spacing: 14) {
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.secondary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 12)
+            HStack(spacing: 8) {
+                if showsSyncButton {
+                    Button("立即同步") { agentActivity.syncNow() }
+                        .buttonStyle(SettingsButtonStyle())
+                        .disabled(agentActivity.status == .checking || agentActivity.status == .syncing)
+                }
+                if let primaryActionTitle {
+                    Button(primaryActionTitle) { model.page = .settings }
+                        .buttonStyle(SettingsButtonStyle(prominent: !showsSyncButton))
+                }
+            }
+        }
+        .padding(.top, 2)
     }
 
     private func agentMetric(title: String, value: String, note: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Palette.secondary)
             Text(value)
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
@@ -363,16 +643,17 @@ struct InsightsView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(note)
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
         .background(Palette.background.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
-    private func agentSessionRow(_ session: AgentActivitySession) -> some View {
+    private func agentSessionRow(_ session: AgentActivitySession, interval: DateInterval) -> some View {
         HStack(spacing: 12) {
             LineIcon(systemName: "terminal", size: 17)
                 .foregroundStyle(Palette.accent)
@@ -396,7 +677,7 @@ struct InsightsView: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 10)
-            Text(durationText(session.seconds(in: agentSummary.interval)))
+            Text(durationText(session.seconds(in: interval)))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Palette.secondary)
                 .monospacedDigit()
@@ -404,98 +685,100 @@ struct InsightsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(Palette.background.opacity(0.62), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    private func agentEmpty(_ text: String) -> some View {
-        HStack(spacing: 12) {
-            LineIcon(systemName: "terminal", size: 20)
-                .foregroundStyle(Palette.accent.opacity(0.7))
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(Palette.secondary)
-                .lineSpacing(3)
-            Spacer()
-        }
-        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
-    private func timeline(_ data: ApplicationInsights) -> some View {
+    private func timeline(data: ApplicationInsights, agent: AgentActivitySummary, now: Date) -> some View {
+        let isToday = state.range == .today
+        let onlyAgentToday = isToday && data.totalSeconds == 0 && !agent.sessions.isEmpty
         VStack(alignment: .leading, spacing: 17) {
-            HStack {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(state.range == .today ? "今天的时间流" : "每天去了哪里")
+                    Text(isToday ? "今天的时间流" : "每天去了哪里")
                         .font(.system(size: 15, weight: .semibold))
-                    Text(state.range == .today ? "每一段颜色对应一个应用类别" : "按天叠加，比较不同类别的时间占比")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.secondary)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(
+                        onlyAgentToday
+                            ? "按 00:00–24:00 展示今日 Agent 工作时段"
+                            : isToday
+                                ? "按 00:00–24:00 展示实际记录时段，颜色对应应用类别"
+                                : "\(state.range.dateSpanText(now: now)) · 按天叠加比较各类别时长"
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondary)
                 }
                 Spacer()
                 if data.totalSeconds > 0 {
-                    Text("\(data.applicationCount) 个应用")
+                    Text("\(data.applicationCount) 个应用 · \(data.byCategory.count) 个类别")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Palette.secondary)
+                        .monospacedDigit()
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(Palette.background, in: Capsule())
+                } else if onlyAgentToday {
+                    Text("\(agent.sessions.count) 个 Agent 会话")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                        .monospacedDigit()
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
                         .background(Palette.background, in: Capsule())
                 }
             }
-            if state.range == .today {
+            if isToday {
                 TimelineRibbon(
                     segments: model.engine.applicationSegments,
-                    agentSessions: agentSummary.sessions,
-                    date: model.engine.now,
-                    animate: animated
+                    categories: data.byCategory,
+                    appTotalSeconds: data.totalSeconds,
+                    agentSessions: agent.sessions,
+                    agentWallSeconds: agent.wallSeconds,
+                    date: now
                 )
-            } else if dailyCategories.isEmpty {
-                emptyTimeline
             } else {
-                CategoryDailyChart(points: dailyCategories, days: state.range.rawValue)
-                    .frame(height: 220)
+                let dailyPoints = ApplicationInsights.daily(
+                    segments: model.engine.applicationSegments,
+                    endingAt: now,
+                    days: state.range.rawValue
+                )
+                CategoryDailyChart(
+                    points: dailyPoints,
+                    categories: data.byCategory,
+                    totalSeconds: data.totalSeconds,
+                    dateRangeText: state.range.dateSpanText(now: now),
+                    days: state.range.rawValue
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card(padding: 24)
     }
 
-    private var emptyTimeline: some View {
-        HStack(spacing: 14) {
-            LineIcon(systemName: "chart-line", size: 28)
-                .foregroundStyle(Palette.accent.opacity(0.7))
-            VStack(alignment: .leading, spacing: 4) {
-                Text("暂时没有应用时间流").font(.system(size: 14, weight: .medium))
-                Text("开启“时间去向”并使用一会儿应用后，这里会自动出现。")
-                    .font(.system(size: 12)).foregroundStyle(Palette.secondary)
-            }
-            Spacer()
-        }
-        .padding(.vertical, 22)
-    }
-
     private func applicationBreakdown(_ data: ApplicationInsights) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Text("应用去向").font(.system(size: 15, weight: .semibold))
+                Text("应用去向")
+                    .font(.system(size: 15, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Text("累计 \(durationText(data.totalSeconds))")
-                    .font(.system(size: 12)).foregroundStyle(Palette.secondary).monospacedDigit()
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondary)
+                    .monospacedDigit()
             }
-            if data.byApplication.isEmpty {
-                emptyTimeline
-            } else {
-                VStack(spacing: 14) {
-                    ForEach(Array(data.byApplication.prefix(8))) { app in
-                        ApplicationBreakdownRow(
-                            app: app,
-                            total: data.totalSeconds,
-                            animate: animated
-                        )
-                    }
+            VStack(spacing: 14) {
+                ForEach(Array(data.byApplication.prefix(8))) { app in
+                    ApplicationBreakdownRow(
+                        app: app,
+                        total: data.totalSeconds
+                    )
                 }
-                if data.byApplication.count > 8 {
-                    Text("另有 \(data.byApplication.count - 8) 个应用未展开")
-                        .font(.system(size: 11)).foregroundStyle(Palette.secondary)
-                }
+            }
+            if data.byApplication.count > 8 {
+                Text("另有 \(data.byApplication.count - 8) 个应用未展开")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -504,28 +787,40 @@ struct InsightsView: View {
 
     private func categoryBreakdown(_ data: ApplicationInsights) -> some View {
         VStack(alignment: .leading, spacing: 17) {
-            Text("类别构成").font(.system(size: 15, weight: .semibold))
-            if data.byCategory.isEmpty {
-                emptyTimeline
-            } else {
-                HStack {
-                    Spacer()
-                    CategoryDonut(entries: data.byCategory, total: data.totalSeconds, animate: animated)
-                        .frame(width: 150, height: 150)
-                    Spacer()
-                }
-                VStack(spacing: 11) {
-                    ForEach(data.byCategory) { entry in
-                        HStack(spacing: 9) {
-                            Circle().fill(entry.category.color).frame(width: 8, height: 8)
-                            Text(entry.category.title).font(.system(size: 12)).lineLimit(1)
-                            Spacer()
-                            Text(durationText(entry.seconds))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Palette.secondary)
-                                .monospacedDigit()
-                        }
+            HStack {
+                Text("类别构成")
+                    .font(.system(size: 15, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Text("\(data.byCategory.count) 类")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondary)
+                    .monospacedDigit()
+            }
+            HStack {
+                Spacer()
+                CategoryDonut(entries: data.byCategory, total: data.totalSeconds)
+                    .frame(width: 150, height: 150)
+                Spacer()
+            }
+            VStack(spacing: 11) {
+                ForEach(data.byCategory) { entry in
+                    HStack(spacing: 9) {
+                        Circle().fill(entry.category.color).frame(width: 8, height: 8)
+                        Text(entry.category.title).font(.system(size: 12)).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(insightPercent(entry.seconds, of: data.totalSeconds))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                            .monospacedDigit()
+                            .frame(width: 34, alignment: .trailing)
+                        Text(durationText(entry.seconds))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Palette.ink)
+                            .monospacedDigit()
+                            .frame(minWidth: 56, alignment: .trailing)
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -537,13 +832,68 @@ struct InsightsView: View {
         HStack(alignment: .top, spacing: 11) {
             LineIcon(systemName: "eye", size: 17)
                 .foregroundStyle(Palette.accent)
-            Text("应用去向只记录前台应用名称、粗略类别与停留时段，全部留在本机。HAPI 只读取 Agent 会话标题、项目路径、机器和时段，不保存 prompt、回复或代码内容；它连接到你自己的 HAPI Hub，不经过息间的服务器。")
+            Text(
+                model.settings.agentActivityEnabled
+                    ? "应用去向只记录前台应用名称、粗略类别与停留时段，全部留在本机。HAPI 只读取 Agent 会话标题、项目路径、机器和时段，不保存 prompt、回复或代码内容；它连接到你自己的 HAPI Hub，不经过息间的服务器。"
+                    : "应用去向只记录前台应用名称、粗略类别与停留时段，全部留在本机。"
+            )
                 .font(.system(size: 12))
                 .foregroundStyle(Palette.secondary)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 5)
+    }
+}
+
+private let insightsWarningColor = Color(nsColor: NSColor(
+    name: NSColor.Name("local.still.insights.warning"),
+    dynamicProvider: { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 245 / 255, green: 185 / 255, blue: 89 / 255, alpha: 1)
+            : NSColor(srgbRed: 154 / 255, green: 91 / 255, blue: 0 / 255, alpha: 1)
+    }
+))
+
+private struct InsightsWrapLayout: Layout {
+    var spacing: CGFloat = 12
+    var lineSpacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(width: proposal.width, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = arrange(width: bounds.width, subviews: subviews)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(
+                at: CGPoint(x: bounds.minX + layout.origins[index].x, y: bounds.minY + layout.origins[index].y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(layout.sizes[index])
+            )
+        }
+    }
+
+    private func arrange(width: CGFloat?, subviews: Subviews) -> (origins: [CGPoint], sizes: [CGSize], size: CGSize) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let limit = width ?? sizes.reduce(0) { $0 + $1.width + spacing }
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxWidth: CGFloat = 0
+        for size in sizes {
+            if x > 0 && x + size.width > limit {
+                x = 0
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            maxWidth = max(maxWidth, x + size.width)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (origins, sizes, CGSize(width: width ?? maxWidth, height: y + rowHeight))
     }
 }
 
@@ -639,6 +989,13 @@ private struct CategoryBar: View {
         .clipShape(Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("时间类别分布")
+        .accessibilityValue(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        entries.map { entry in
+            "\(entry.category.title) \(insightPercent(entry.seconds, of: total))（\(durationText(entry.seconds))）"
+        }.joined(separator: "，")
     }
 
     private struct Slice: Identifiable {
@@ -660,139 +1017,302 @@ private struct CategoryBar: View {
 
 private struct TimelineRibbon: View {
     let segments: [ApplicationUsageSegment]
+    let categories: [CategoryTime]
+    let appTotalSeconds: Double
     let agentSessions: [AgentActivitySession]
+    let agentWallSeconds: Double
     let date: Date
-    let animate: Bool
-    @StateObject private var state = RevealState()
 
     var body: some View {
         let window = DayTimelineWindow(date: date, now: date)
-        let visible = segments.filter { $0.seconds(in: window.visible) > 0 }
-        let hasAgentLane = !agentSessions.isEmpty
+        let visibleApps = segments.compactMap { segment -> (segment: ApplicationUsageSegment, start: Date, end: Date)? in
+            guard let end = window.visibleEnd(for: segment.startedAt, end: segment.endedAt) else { return nil }
+            let start = max(segment.startedAt, window.visible.start)
+            return (segment, start, end)
+        }
+        let visibleAgentSpans = agentSessions.flatMap { session in
+            session.spans.compactMap { span -> (id: String, start: Date, end: Date)? in
+                guard let end = window.visibleEnd(for: span.startedAt, end: span.endedAt) else { return nil }
+                let start = max(span.startedAt, window.visible.start)
+                return ("\(session.id)-\(span.id.uuidString)", start, end)
+            }
+        }
+
+        let hasAppLane = !visibleApps.isEmpty
+        let hasAgentLane = !visibleAgentSpans.isEmpty
+        let laneCount = (hasAppLane ? 1 : 0) + (hasAgentLane ? 1 : 0)
         let laneHeight: CGFloat = 26
         let laneGap: CGFloat = 8
-        VStack(spacing: 9) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Palette.background)
-                    ForEach(0..<24, id: \.self) { hour in
+        let trackHeight: CGFloat = laneCount == 2 ? laneHeight * 2 + laneGap : laneHeight
+        let agentYOffset: CGFloat = hasAppLane ? laneHeight + laneGap : 0
+
+        let appSpanText = timeRangeText(
+            starts: visibleApps.map(\.start),
+            ends: visibleApps.map(\.end)
+        )
+        let agentSpanText = timeRangeText(
+            starts: visibleAgentSpans.map(\.start),
+            ends: visibleAgentSpans.map(\.end)
+        )
+        let gridColor = Palette.surface.opacity(0.9)
+        let agentColor = Palette.green.opacity(0.82)
+
+        VStack(alignment: .leading, spacing: 11) {
+            if let summaryText = visibleSummaryText(appSpan: appSpanText, agentSpan: agentSpanText) {
+                HStack(spacing: 8) {
+                    Text(summaryText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondary)
+                        .monospacedDigit()
+                    Spacer(minLength: 0)
+                }
+            }
+
+            VStack(spacing: 9) {
+                Canvas { context, size in
+                    context.fill(
+                        Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 8),
+                        with: .color(Palette.background)
+                    )
+                    for hour in 0..<24 {
                         if let mark = Calendar.current.date(byAdding: .hour, value: hour, to: window.day.start),
                            mark <= window.visible.end {
-                            Rectangle()
-                                .fill(Palette.surface.opacity(0.9))
-                                .frame(width: 1, height: hasAgentLane ? laneHeight * 2 + laneGap : laneHeight)
-                                .offset(x: proxy.size.width * window.fraction(for: mark))
+                            let x = size.width * window.fraction(for: mark)
+                            context.fill(Path(CGRect(x: x, y: 0, width: 1, height: trackHeight)), with: .color(gridColor))
                         }
                     }
-                    ForEach(visible) { segment in
-                        if let end = window.visibleEnd(for: segment.startedAt, end: segment.endedAt) {
-                            let start = max(segment.startedAt, window.visible.start)
-                            let x = proxy.size.width * start.timeIntervalSince(window.visible.start) / window.day.duration
-                            let width = max(2, proxy.size.width * end.timeIntervalSince(start) / window.day.duration)
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(segment.category.color.opacity(0.86))
-                                .frame(width: width * (state.revealed ? 1 : 0.1), height: laneHeight)
-                                .offset(x: x)
+                    if hasAppLane {
+                        for item in visibleApps {
+                            let x = size.width * item.start.timeIntervalSince(window.visible.start) / window.day.duration
+                            let width = max(2, size.width * item.end.timeIntervalSince(item.start) / window.day.duration)
+                            let rect = CGRect(x: x, y: 0, width: width, height: laneHeight)
+                            context.fill(
+                                Path(roundedRect: rect, cornerRadius: 4),
+                                with: .color(item.segment.category.color.opacity(0.86))
+                            )
                         }
                     }
                     if hasAgentLane {
-                        ForEach(agentSessions) { session in
-                            ForEach(session.spans) { span in
-                                if let end = window.visibleEnd(for: span.startedAt, end: span.endedAt) {
-                                    let start = max(span.startedAt, window.visible.start)
-                                    let x = proxy.size.width * start.timeIntervalSince(window.visible.start) / window.day.duration
-                                    let width = max(2, proxy.size.width * end.timeIntervalSince(start) / window.day.duration)
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(Palette.green.opacity(0.82))
-                                        .frame(width: width * (state.revealed ? 1 : 0.1), height: laneHeight)
-                                        .offset(x: x, y: laneHeight + laneGap)
-                                }
-                            }
+                        for item in visibleAgentSpans {
+                            let x = size.width * item.start.timeIntervalSince(window.visible.start) / window.day.duration
+                            let width = max(2, size.width * item.end.timeIntervalSince(item.start) / window.day.duration)
+                            let rect = CGRect(x: x, y: agentYOffset, width: width, height: laneHeight)
+                            context.fill(
+                                Path(roundedRect: rect, cornerRadius: 4),
+                                with: .color(agentColor)
+                            )
                         }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            .frame(height: hasAgentLane ? laneHeight * 2 + laneGap : laneHeight)
-            if hasAgentLane {
-                HStack(spacing: 18) {
-                    HStack(spacing: 6) {
-                        Circle().fill(Palette.accent).frame(width: 6, height: 6)
-                        Text("前台应用")
-                    }
-                    HStack(spacing: 6) {
-                        Circle().fill(Palette.green).frame(width: 6, height: 6)
-                        Text("Agent")
+                .frame(height: trackHeight)
+
+                GeometryReader { proxy in
+                    ForEach(window.marks(), id: \.self) { mark in
+                        Text(mark == window.day.end ? "24:00" : timelineTimeText(mark))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Palette.secondary)
+                            .frame(width: 46)
+                            .position(
+                                x: min(max(23, proxy.size.width * window.fraction(for: mark)), proxy.size.width - 23),
+                                y: 7
+                            )
                     }
                 }
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Palette.secondary)
+                .frame(height: 14)
             }
-            GeometryReader { proxy in
-                ForEach(window.marks(), id: \.self) { mark in
-                    Text(mark == window.day.end ? "24:00" : timelineTimeText(mark))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Palette.secondary.opacity(0.8))
-                        .frame(width: 44)
-                        .position(
-                            x: min(max(22, proxy.size.width * window.fraction(for: mark)), proxy.size.width - 22),
-                            y: 6
-                        )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityTitle(hasAppLane: hasAppLane, hasAgentLane: hasAgentLane))
+            .accessibilityValue(accessibilitySummary(appSpan: appSpanText, agentSpan: agentSpanText))
+
+            if hasAppLane || hasAgentLane {
+                InsightsWrapLayout(spacing: 14, lineSpacing: 8) {
+                    if hasAppLane && hasAgentLane {
+                        HStack(spacing: 6) {
+                            RoundedRectangle(cornerRadius: 2).fill(Palette.accent).frame(width: 10, height: 6)
+                            Text("上轨：前台应用")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Palette.ink)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                    if hasAppLane {
+                        ForEach(categories) { entry in
+                            HStack(spacing: 6) {
+                                Circle().fill(entry.category.color).frame(width: 7, height: 7)
+                                Text(entry.category.title)
+                                Text(durationText(entry.seconds))
+                                    .foregroundStyle(Palette.secondary)
+                                    .monospacedDigit()
+                            }
+                            .font(.system(size: 11))
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    if hasAgentLane {
+                        HStack(spacing: 6) {
+                            Circle().fill(Palette.green).frame(width: 7, height: 7)
+                            Text(hasAppLane ? "下轨：Agent" : "Agent 工作时段")
+                                .fontWeight(.medium)
+                                .foregroundStyle(Palette.ink)
+                            Text(durationText(agentWallSeconds))
+                                .foregroundStyle(Palette.secondary)
+                                .monospacedDigit()
+                        }
+                        .font(.system(size: 11))
+                        .accessibilityElement(children: .combine)
+                    }
                 }
             }
-            .frame(height: 12)
         }
-        .onAppear {
-            withAnimation(animate ? .easeOut(duration: 0.55) : nil) { state.revealed = true }
+    }
+
+    private func timeRangeText(starts: [Date], ends: [Date]) -> String? {
+        guard let first = starts.min(), let last = ends.max() else { return nil }
+        return "\(timelineTimeText(first))–\(timelineTimeText(last))"
+    }
+
+    private func visibleSummaryText(appSpan: String?, agentSpan: String?) -> String? {
+        var parts: [String] = []
+        if let appSpan {
+            parts.append("前台应用实际时段 \(appSpan)（共 \(durationText(appTotalSeconds))）")
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("今日应用时间流")
+        if let agentSpan {
+            parts.append("Agent 时段 \(agentSpan)（墙钟 \(durationText(agentWallSeconds))）")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func accessibilityTitle(hasAppLane: Bool, hasAgentLane: Bool) -> String {
+        if hasAppLane && hasAgentLane { return "今日应用与 Agent 时间流" }
+        if hasAgentLane { return "今日 Agent 时间流" }
+        return "今日应用时间流"
+    }
+
+    private func accessibilitySummary(appSpan: String?, agentSpan: String?) -> String {
+        var parts: [String] = []
+        if let appSpan {
+            let categoryText = categories.map { "\($0.category.title) \(durationText($0.seconds))" }.joined(separator: "，")
+            parts.append("前台应用时段 \(appSpan)，累计 \(durationText(appTotalSeconds))，包含\(categoryText)")
+        }
+        if let agentSpan {
+            parts.append("Agent 时段 \(agentSpan)，\(agentSessions.count) 个会话，墙钟 \(durationText(agentWallSeconds))")
+        }
+        return parts.isEmpty ? "暂无记录" : parts.joined(separator: "；")
     }
 }
 
 private struct CategoryDailyChart: View {
+    private struct LegendEntry: Identifiable {
+        let category: ApplicationCategory
+        let seconds: Double
+        var id: String { category.rawValue }
+    }
+
     let points: [DailyCategoryTime]
+    let categories: [CategoryTime]
+    let totalSeconds: Double
+    let dateRangeText: String
     let days: Int
 
     var body: some View {
-        let categories = ApplicationCategory.allCases.filter { category in
-            points.contains { $0.category == category && $0.seconds > 0 }
-        }
-        Chart(points) { point in
-            BarMark(
-                x: .value("日期", point.date, unit: .day),
-                y: .value("分钟", point.seconds / 60)
+        let orderedCategories: [LegendEntry] = categories.isEmpty
+            ? ApplicationCategory.allCases.compactMap { category -> LegendEntry? in
+                let total = points.filter { $0.category == category }.reduce(0) { $0 + $1.seconds }
+                return total > 0 ? LegendEntry(category: category, seconds: total) : nil
+            }.sorted { $0.seconds > $1.seconds }
+            : categories.map { LegendEntry(category: $0.category, seconds: $0.seconds) }
+
+        let dailyTotals = Dictionary(grouping: points, by: \.date).map { (date: $0.key, seconds: $0.value.reduce(0) { $0 + $1.seconds }) }
+        let activeDays = dailyTotals.filter { $0.seconds > 0 }.count
+        let peakDay = dailyTotals.max { $0.seconds < $1.seconds }
+
+        VStack(alignment: .leading, spacing: 12) {
+            Text(summaryLine(activeDays: activeDays, peakDay: peakDay))
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.secondary)
+                .monospacedDigit()
+
+            Chart(points) { point in
+                BarMark(
+                    x: .value("日期", point.date, unit: .day),
+                    y: .value("分钟", point.seconds / 60)
+                )
+                .foregroundStyle(by: .value("类别", point.category.title))
+                .cornerRadius(3)
+            }
+            .chartForegroundStyleScale(
+                domain: orderedCategories.map(\.category.title),
+                range: orderedCategories.map(\.category.color)
             )
-            .foregroundStyle(by: .value("类别", point.category.title))
-            .cornerRadius(3)
-        }
-        .chartForegroundStyleScale(
-            domain: categories.map(\.title),
-            range: categories.map(\.color)
-        )
-        .chartLegend(.hidden)
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: days == 28 ? 7 : 1)) { value in
-                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true)
+            .chartLegend(.hidden)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day, count: days == 28 ? 7 : 1)) { _ in
+                    AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondary)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { _ in
+                    AxisGridLine().foregroundStyle(Palette.line)
+                    AxisValueLabel().font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                }
+            }
+            .frame(height: 220)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("每日类别时间分布图")
+            .accessibilityValue(chartAccessibilityValue(activeDays: activeDays, peakDay: peakDay, categories: orderedCategories))
+
+            InsightsWrapLayout(spacing: 14, lineSpacing: 8) {
+                ForEach(orderedCategories) { entry in
+                    HStack(spacing: 6) {
+                        Circle().fill(entry.category.color).frame(width: 7, height: 7)
+                        Text(entry.category.title)
+                        Text(insightPercent(entry.seconds, of: totalSeconds))
+                            .foregroundStyle(Palette.secondary)
+                            .monospacedDigit()
+                        Text(durationText(entry.seconds))
+                            .foregroundStyle(Palette.secondary)
+                            .monospacedDigit()
+                    }
                     .font(.system(size: 11))
-                    .foregroundStyle(Palette.secondary)
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
-        .chartYAxis {
-            AxisMarks(position: .leading) { _ in
-                AxisGridLine().foregroundStyle(Palette.line)
-                AxisValueLabel().font(.system(size: 11)).foregroundStyle(Palette.secondary)
-            }
+    }
+
+    private func summaryLine(activeDays: Int, peakDay: (date: Date, seconds: Double)?) -> String {
+        var parts = ["范围 \(dateRangeText)", "有记录 \(activeDays)/\(days) 天"]
+        if let peakDay, peakDay.seconds > 0 {
+            let dayText = peakDay.date.formatted(.dateTime.month(.defaultDigits).day())
+            parts.append("峰值 \(dayText) \(durationText(peakDay.seconds))")
         }
+        return parts.joined(separator: " · ")
+    }
+
+    private func chartAccessibilityValue(
+        activeDays: Int,
+        peakDay: (date: Date, seconds: Double)?,
+        categories: [LegendEntry]
+    ) -> String {
+        var parts = ["统计范围 \(dateRangeText)，共 \(activeDays) 天有记录，累计 \(durationText(totalSeconds))"]
+        if let peakDay, peakDay.seconds > 0 {
+            let dayText = peakDay.date.formatted(.dateTime.month(.defaultDigits).day())
+            parts.append("最高为 \(dayText) \(durationText(peakDay.seconds))")
+        }
+        if !categories.isEmpty {
+            let breakdown = categories.map { "\($0.category.title) \(durationText($0.seconds))" }.joined(separator: "，")
+            parts.append("分类合计：\(breakdown)")
+        }
+        return parts.joined(separator: "；")
     }
 }
 
 private struct ApplicationBreakdownRow: View {
     let app: ApplicationTime
     let total: Double
-    let animate: Bool
-    @StateObject private var state = RevealState()
 
     var body: some View {
         HStack(spacing: 12) {
@@ -813,7 +1333,7 @@ private struct ApplicationBreakdownRow: View {
                         Capsule().fill(Palette.background)
                         Capsule()
                             .fill(app.category.color.opacity(0.8))
-                            .frame(width: max(2, proxy.size.width * app.seconds / max(total, 1)) * (state.revealed ? 1 : 0.02))
+                            .frame(width: max(2, proxy.size.width * app.seconds / max(total, 1)))
                     }
                 }
                 .frame(height: 6)
@@ -824,17 +1344,13 @@ private struct ApplicationBreakdownRow: View {
                 .monospacedDigit()
                 .frame(width: 36, alignment: .trailing)
         }
-        .onAppear {
-            withAnimation(animate ? .easeOut(duration: 0.48) : nil) { state.revealed = true }
-        }
+        .accessibilityElement(children: .combine)
     }
 }
 
 private struct CategoryDonut: View {
     let entries: [CategoryTime]
     let total: Double
-    let animate: Bool
-    @StateObject private var state = RevealState()
 
     var body: some View {
         ZStack {
@@ -850,14 +1366,12 @@ private struct CategoryDonut: View {
                 Text(durationText(total))
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text("应用时间").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                Text("应用时间").font(.system(size: 11)).foregroundStyle(Palette.secondary)
             }
         }
-        .scaleEffect(state.revealed ? 1 : 0)
-        .opacity(state.revealed ? 1 : 0)
-        .onAppear {
-            withAnimation(animate ? .spring(response: 0.55, dampingFraction: 0.78) : nil) { state.revealed = true }
-        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("类别构成环形图")
+        .accessibilityValue("应用总时长 \(durationText(total))，共 \(entries.count) 个类别")
     }
 
     private struct Slice: Identifiable {
@@ -883,8 +1397,9 @@ private struct ApplicationIcon: View {
     @StateObject private var state = ApplicationIconState()
 
     var body: some View {
+        let displayed = state.image ?? ApplicationIconCache.shared.cachedIcon(for: bundleID)
         Group {
-            if let image = state.image {
+            if let image = displayed {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -895,14 +1410,17 @@ private struct ApplicationIcon: View {
                     .background(Palette.lavender, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
-        .onAppear { state.image = ApplicationIconCache.shared.icon(for: bundleID) }
-        .accessibilityLabel(name)
+        .task(id: bundleID) {
+            if let cached = ApplicationIconCache.shared.cachedIcon(for: bundleID) {
+                state.image = cached
+                return
+            }
+            let icon = await ApplicationIconCache.shared.loadIcon(for: bundleID)
+            guard !Task.isCancelled else { return }
+            state.image = icon
+        }
+        .accessibilityHidden(true)
     }
-}
-
-@MainActor
-private final class RevealState: ObservableObject {
-    @Published var revealed = false
 }
 
 @MainActor
@@ -914,15 +1432,36 @@ private final class ApplicationIconState: ObservableObject {
 private final class ApplicationIconCache {
     static let shared = ApplicationIconCache()
     private let cache = NSCache<NSString, NSImage>()
+    private var missing = Set<String>()
+    private var pending: [String: Task<CGImage?, Never>] = [:]
 
-    func icon(for bundleID: String) -> NSImage? {
+    func cachedIcon(for bundleID: String) -> NSImage? {
         guard !bundleID.isEmpty else { return nil }
+        return cache.object(forKey: bundleID as NSString)
+    }
+
+    func loadIcon(for bundleID: String) async -> NSImage? {
+        guard !bundleID.isEmpty, !missing.contains(bundleID) else { return nil }
         let key = bundleID as NSString
         if let cached = cache.object(forKey: key) { return cached }
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
-        cache.setObject(icon, forKey: key)
-        return icon
+        let task = pending[bundleID] ?? Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            var rect = NSRect(x: 0, y: 0, width: 64, height: 64)
+            return icon.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        }
+        pending[bundleID] = task
+        let cgImage = await task.value
+        pending[bundleID] = nil
+        if let cached = cache.object(forKey: key) { return cached }
+        if let cgImage {
+            let image = NSImage(cgImage: cgImage, size: NSSize(width: 64, height: 64))
+            cache.setObject(image, forKey: key)
+            return image
+        } else {
+            missing.insert(bundleID)
+            return nil
+        }
     }
 }
 

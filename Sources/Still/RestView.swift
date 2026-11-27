@@ -32,57 +32,113 @@ struct RestActions: View {
 
 struct RestView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var liveClock: LiveEngineClock
     var presentation: RestPresentation
     var close: () -> Void
     var chooseCourse: (Course) -> Void = { _ in }
+
+    @MainActor
+    init(model: AppModel, presentation: RestPresentation, close: @escaping () -> Void, chooseCourse: @escaping (Course) -> Void = { _ in }) {
+        self.model = model
+        _liveClock = ObservedObject(wrappedValue: model.liveClock)
+        self.presentation = presentation
+        self.close = close
+        self.chooseCourse = chooseCourse
+    }
+
+    private var displayedSeconds: Double {
+        presentation == .preview ? model.settings.restSeconds : model.engine.restRemaining
+    }
     var body: some View {
-        ScrollView(showsIndicators: false) {
+        let _ = liveClock.tick
         VStack(spacing: 0) {
             HStack {
                 HStack(spacing: 7) { LineIcon(systemName: "leaf", size: 15); Text(presentation == .preview ? "提醒预览" : "息间") }
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.accentDark)
                 Spacer()
-                Button(action: close) { LineIcon(systemName: "x", size: 13).foregroundStyle(Palette.secondary).frame(width: 28, height: 28).background(Palette.surface.opacity(0.78), in: Circle()) }
-                    .buttonStyle(.plain).accessibilityLabel(presentation == .resting || presentation == .due ? "关闭并稍后提醒" : "关闭窗口")
-            }.padding(.horizontal, 25).padding(.top, 20)
-            FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 130, height: 130).padding(.top, 12)
-            Text(presentation == .completed ? "休息结束" : model.reminderText)
-                .font(.system(size: 24, weight: .medium, design: .rounded))
-                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
-                .frame(maxWidth: 370, minHeight: 48).padding(.top, 10)
-            if presentation == .resting || presentation == .preview {
-                Text(clockText(presentation == .preview ? model.settings.restSeconds : model.engine.restRemaining))
-                    .font(.system(size: 43, weight: .light, design: .rounded)).monospacedDigit()
-                    .foregroundStyle(Palette.accentDark).padding(.top, 10)
+                Button(action: close) {
+                    LineIcon(systemName: "x", size: 13)
+                        .foregroundStyle(Palette.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(Palette.surface.opacity(0.78), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(presentation == .resting || presentation == .due ? "关闭并稍后提醒" : "关闭窗口")
+                .accessibilityLabel(presentation == .resting || presentation == .due ? "关闭并稍后提醒" : "关闭窗口")
             }
-            HStack(spacing: 12) {
-                Text("疲劳值 \(model.engine.fatiguePercent)%")
-                if model.settings.showDailyTimeInReminder { Text("今日 \(durationText(model.today.seconds))") }
-            }.font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.top, 10)
-            if presentation == .preview {
-                Text("预览不会开始休息").font(.system(size: 12)).foregroundStyle(Palette.secondary).padding(.top, 8)
+            .padding(.horizontal, 25)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
+
+            EdgeFadeScrollView(fadeLength: 22, fadeThreshold: 18, fadeStyle: .alphaMask) {
+                VStack(spacing: 0) {
+                    FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 124, height: 124).padding(.top, 6)
+                    Text(presentation == .completed ? "休息结束" : model.reminderText)
+                        .font(.system(size: 24, weight: .medium, design: .rounded))
+                        .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
+                        .frame(maxWidth: 370, minHeight: 48).padding(.top, 10)
+                    if presentation == .resting || presentation == .preview {
+                        Text(clockText(displayedSeconds))
+                            .font(.system(size: 43, weight: .light, design: .rounded)).monospacedDigit()
+                            .foregroundStyle(Palette.accentDark).padding(.top, 8)
+                            .accessibilityLabel(presentation == .preview ? "示意休息时长" : "剩余休息时间")
+                            .accessibilityValue(SimpleRestView.spokenDuration(displayedSeconds))
+                    }
+                    if presentation == .preview {
+                        Text("示意时长 · 预览不会开始休息")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                            .padding(.top, 6)
+                    }
+                    HStack(spacing: 12) {
+                        Text("疲劳值 \(model.engine.fatiguePercent)%").monospacedDigit()
+                        if model.settings.showDailyTimeInReminder { Text("今日 \(durationText(model.today.seconds))") }
+                    }.font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.top, 8)
+                    if presentation != .completed && model.settings.coursesEnabled {
+                        ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
+                            .padding(.horizontal, 24).padding(.top, 16)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 12)
             }
-            if presentation != .completed && model.settings.coursesEnabled {
-                ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
-                    .padding(.horizontal, 24).padding(.top, 18)
-            }
-            RestActions(model: model, presentation: presentation, close: close).padding(.top, 18)
-            Spacer(minLength: 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            RestActions(model: model, presentation: presentation, close: close)
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 20)
         }
-        .frame(maxWidth: .infinity)
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LinearGradient(colors: [Palette.restStart, Palette.restEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
         .foregroundStyle(Palette.ink)
+        .environment(\.stillMotionEnabled, model.settings.motionEnabled)
         .onExitCommand(perform: close)
     }
 }
 
 struct FullScreenRestView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var liveClock: LiveEngineClock
     let presentation: RestPresentation
     var close: () -> Void
     var chooseCourse: (Course) -> Void = { _ in }
+
+    @MainActor
+    init(model: AppModel, presentation: RestPresentation, close: @escaping () -> Void, chooseCourse: @escaping (Course) -> Void = { _ in }) {
+        self.model = model
+        _liveClock = ObservedObject(wrappedValue: model.liveClock)
+        self.presentation = presentation
+        self.close = close
+        self.chooseCourse = chooseCourse
+    }
+
+    private var displayedSeconds: Double {
+        presentation == .preview ? model.settings.restSeconds : model.engine.restRemaining
+    }
     var body: some View {
+        let _ = liveClock.tick
         ZStack {
             LinearGradient(colors: [Palette.restStart, Palette.heroMiddle, Palette.restEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
             VStack(spacing: 0) {
@@ -93,72 +149,99 @@ struct FullScreenRestView: View {
                     }
                     Spacer()
                     Button { close() } label: { LineLabel(presentation == .resting || presentation == .due ? "稍后提醒" : "关闭窗口", systemImage: "x") }.buttonStyle(SoftButtonStyle())
-                }.padding(30)
-                ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                Spacer(minLength: 10)
-                FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 145, height: 145)
-                Text(presentation == .completed ? "休息结束" : model.reminderText)
-                    .font(.system(size: 34, weight: .medium, design: .rounded))
-                    .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.75)
-                    .frame(maxWidth: 650).padding(.horizontal, 30).padding(.top, 20)
-                if presentation == .resting || presentation == .preview {
-                    Text(clockText(presentation == .preview ? model.settings.restSeconds : model.engine.restRemaining))
-                        .font(.system(size: 62, weight: .light, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(Palette.accentDark).padding(.top, 16)
+                }.padding(.horizontal, 30).padding(.top, 30).padding(.bottom, 16)
+                GeometryReader { proxy in
+                    EdgeFadeScrollView(fadeLength: 28, fadeThreshold: 22, fadeStyle: .alphaMask) {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 12)
+                            FlowerView(isAnimating: model.settings.motionEnabled).frame(width: 145, height: 145)
+                            Text(presentation == .completed ? "休息结束" : model.reminderText)
+                                .font(.system(size: 34, weight: .medium, design: .rounded))
+                                .multilineTextAlignment(.center).lineLimit(3).minimumScaleFactor(0.75)
+                                .frame(maxWidth: 650).padding(.horizontal, 30).padding(.top, 20)
+                            if presentation == .resting || presentation == .preview {
+                                Text(clockText(displayedSeconds))
+                                    .font(.system(size: 62, weight: .light, design: .rounded)).monospacedDigit()
+                                    .foregroundStyle(Palette.accentDark).padding(.top, 16)
+                                    .accessibilityLabel(presentation == .preview ? "示意休息时长" : "剩余休息时间")
+                                    .accessibilityValue(SimpleRestView.spokenDuration(displayedSeconds))
+                            }
+                            if presentation == .preview {
+                                Text("示意时长 · 预览不会开始休息")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Palette.secondary)
+                                    .padding(.top, 8)
+                            }
+                            HStack(spacing: 20) {
+                                Text("疲劳值 \(model.engine.fatiguePercent)%").monospacedDigit()
+                                if model.settings.showDailyTimeInReminder { Text("今日使用 \(durationText(model.today.seconds))") }
+                            }.font(.system(size: 14)).foregroundStyle(Palette.secondary).padding(.top, 14)
+                            if presentation != .completed && model.settings.coursesEnabled {
+                                ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
+                                    .frame(maxWidth: 380).padding(.horizontal, 24).padding(.top, 22)
+                            }
+                            RestActions(model: model, presentation: presentation, close: close).padding(.top, 22)
+                            Spacer(minLength: 20)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    }
                 }
-                HStack(spacing: 20) {
-                    Text("疲劳值 \(model.engine.fatiguePercent)%")
-                    if model.settings.showDailyTimeInReminder { Text("今日使用 \(durationText(model.today.seconds))") }
-                }.font(.system(size: 14)).foregroundStyle(Palette.secondary).padding(.top, 14)
-                if presentation != .completed && model.settings.coursesEnabled {
-                    ReminderRecommendationCard(model: model, preview: presentation == .preview, choose: chooseCourse)
-                        .frame(width: 380).padding(.top, 22)
-                }
-                RestActions(model: model, presentation: presentation, close: close).padding(.top, 22)
-                Spacer(minLength: 20)
-                }.frame(maxWidth: .infinity).padding(.bottom, 12)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                Text(presentation == .resting || presentation == .due ? "Esc 稍后提醒" : "Esc 关闭窗口").font(.system(size: 13)).foregroundStyle(Palette.secondary).padding(.bottom, 25)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text(presentation == .resting || presentation == .due ? "Esc 稍后提醒" : "Esc 关闭窗口")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                    .padding(.top, 10)
+                    .padding(.bottom, 25)
             }
         }
         .foregroundStyle(Palette.ink).tint(Palette.accent).ignoresSafeArea()
+        .environment(\.stillMotionEnabled, model.settings.motionEnabled)
         .onExitCommand(perform: close)
     }
 }
 
 struct MenuPanelView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var liveClock: LiveEngineClock
     var open: () -> Void
     var insights: () -> Void
     var settings: () -> Void
     var close: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
-    private var applicationSummary: ApplicationInsights {
-        let day = Calendar.current.dateInterval(of: .day, for: model.engine.now)
-            ?? DateInterval(start: model.engine.now, duration: 86_400)
-        return ApplicationInsights.make(
-            segments: model.engine.applicationSegments,
-            interval: DateInterval(start: day.start, end: max(day.start.addingTimeInterval(1), model.engine.now))
-        )
+    @MainActor
+    init(model: AppModel, open: @escaping () -> Void, insights: @escaping () -> Void, settings: @escaping () -> Void, close: @escaping () -> Void) {
+        self.model = model
+        _liveClock = ObservedObject(wrappedValue: model.liveClock)
+        self.open = open
+        self.insights = insights
+        self.settings = settings
+        self.close = close
     }
 
-    private var agentSummary: AgentActivitySummary {
-        let day = Calendar.current.dateInterval(of: .day, for: model.engine.now)
-            ?? DateInterval(start: model.engine.now, duration: 86_400)
-        return AgentActivitySummary.make(
-            sessions: model.settings.agentActivityEnabled ? model.agentActivity.sessions : [],
-            interval: DateInterval(start: day.start, end: max(day.start.addingTimeInterval(1), model.engine.now))
-        )
-    }
+    private var reduceMotion: Bool { systemReduceMotion || !model.settings.motionEnabled }
 
     var body: some View {
+        let _ = liveClock.tick
+        let now = model.engine.now
+        let day = Calendar.current.dateInterval(of: .day, for: now)
+            ?? DateInterval(start: now, duration: 86_400)
+        let todayInterval = DateInterval(start: day.start, end: max(day.start.addingTimeInterval(1), now))
+        let todaySummary = model.today
+        let appSummary = ApplicationInsights.make(
+            segments: model.engine.applicationSegments,
+            interval: todayInterval
+        )
+        let agentSummary = AgentActivitySummary.make(
+            sessions: model.settings.agentActivityEnabled ? model.agentActivity.sessions : [],
+            interval: todayInterval
+        )
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 11) {
                 FlowerView(isAnimating: false, compact: true).frame(width: 27, height: 27)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("息间").font(.system(size: 18, weight: .semibold, design: .rounded))
-                    Text(model.engine.now.formatted(.dateTime.month().day().weekday(.wide)))
+                    Text(now.formatted(.dateTime.month().day().weekday(.wide)))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Palette.secondary)
                 }
@@ -169,6 +252,7 @@ struct MenuPanelView: View {
                         .foregroundStyle(Palette.secondary)
                         .frame(width: 28, height: 28)
                         .background(Palette.surface.opacity(0.58), in: Circle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .help("收起快捷面板")
@@ -180,14 +264,15 @@ struct MenuPanelView: View {
                 progress: model.engine.progress,
                 countdownTitle: model.countdownTitle,
                 countdown: clockText(model.countdown),
-                today: durationText(model.today.seconds),
-                breaks: model.today.completedBreaks,
-                applications: applicationSummary.applicationCount
+                today: durationText(todaySummary.seconds),
+                breaks: todaySummary.completedBreaks,
+                applications: appSummary.applicationCount
             )
 
             MenuCommandDock(
                 resting: model.engine.phase == .resting,
                 remindersEnabled: model.settings.remindersEnabled,
+                reduceMotion: reduceMotion,
                 rest: {
                     model.startRest()
                     close()
@@ -198,17 +283,32 @@ struct MenuPanelView: View {
             )
 
             MenuInsightsCard(
-                insights: applicationSummary,
+                insights: appSummary,
                 agents: agentSummary,
                 enabled: model.settings.applicationInsightsEnabled,
+                reduceMotion: reduceMotion,
                 action: insights
             )
-            MenuUsageChart(history: model.fatigueHistory, date: model.engine.now)
+            MenuUsageChart(
+                history: model.fatigueHistory,
+                date: now,
+                reduceMotion: reduceMotion
+            )
             if let error = model.reminderError {
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 8) {
+                    LineIcon(systemName: "triangle-alert", size: 14)
+                        .foregroundStyle(Color.orange)
+                        .padding(.top, 1)
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.orange.opacity(0.38), lineWidth: 1))
             }
         }
         .padding(.horizontal, 20)
@@ -233,6 +333,7 @@ struct MenuPanelView: View {
         )
         .foregroundStyle(Palette.ink)
         .tint(Palette.accent)
+        .environment(\.stillMotionEnabled, model.settings.motionEnabled)
     }
 }
 
@@ -240,9 +341,9 @@ private struct MenuInsightsCard: View {
     let insights: ApplicationInsights
     let agents: AgentActivitySummary
     let enabled: Bool
+    let reduceMotion: Bool
     let action: () -> Void
     @StateObject private var state = MenuInsightsCardState()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -255,7 +356,7 @@ private struct MenuInsightsCard: View {
                     Spacer()
                     if insights.totalSeconds > 0 {
                         Text("前台应用 \(insights.applicationCount) 个")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Palette.secondary)
                     }
                     Text("查看详情")
@@ -315,6 +416,21 @@ private struct MenuInsightsCard: View {
             }
         }
         .accessibilityLabel("打开时间去向")
+        .accessibilityValue(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        var parts: [String] = []
+        if insights.totalSeconds > 0 {
+            parts.append("前台应用 \(insights.applicationCount) 个")
+            if !topApplications.isEmpty { parts.append(topApplications) }
+        } else {
+            parts.append(enabled ? "今日暂无应用记录" : "应用明细已关闭")
+        }
+        if !agents.sessions.isEmpty {
+            parts.append("Agent \(durationText(agents.wallSeconds))，\(agents.sessions.count) 个会话")
+        }
+        return parts.joined(separator: "，")
     }
 
     private var topApplications: String {
@@ -389,11 +505,15 @@ private struct MenuVitalsPanel: View {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text("\(fatigue)")
                         .font(.system(size: 50, weight: .medium, design: .rounded))
+                        .monospacedDigit()
                         .tracking(-2)
                     Text("%")
                         .font(.system(size: 20, weight: .medium, design: .rounded))
                         .foregroundStyle(Palette.accentDark)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("疲劳值")
+                .accessibilityValue("\(fatigue)%")
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Palette.accent.opacity(0.09))
@@ -404,8 +524,10 @@ private struct MenuVitalsPanel: View {
                     }
                 }
                 .frame(height: 3)
+                .accessibilityHidden(true)
                 Text("\(countdownTitle) · \(countdown)")
                     .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
                     .foregroundStyle(Palette.secondary)
                     .lineLimit(1)
             }
@@ -467,6 +589,7 @@ private struct MenuFactRow: View {
 private struct MenuCommandDock: View {
     let resting: Bool
     let remindersEnabled: Bool
+    let reduceMotion: Bool
     let rest: () -> Void
     let toggleReminders: () -> Void
     let open: () -> Void
@@ -474,13 +597,14 @@ private struct MenuCommandDock: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            MenuCommandButton(title: resting ? "休息中" : "现在休息", icon: "leaf", prominent: true, action: rest)
+            MenuCommandButton(title: resting ? "查看休息" : "现在休息", icon: "leaf", prominent: true, reduceMotion: reduceMotion, action: rest)
             MenuCommandButton(title: remindersEnabled ? "暂停提醒" : "恢复提醒",
                               icon: remindersEnabled ? "bell-off" : "bell",
+                              reduceMotion: reduceMotion,
                               action: toggleReminders)
-            MenuCommandButton(title: "主窗口", icon: "app-window", action: open)
-            MenuCommandButton(title: "偏好设置", icon: "settings-2", action: settings)
-            MenuCommandButton(title: "退出", icon: "power", action: { NSApplication.shared.terminate(nil) })
+            MenuCommandButton(title: "主窗口", icon: "app-window", reduceMotion: reduceMotion, action: open)
+            MenuCommandButton(title: "偏好设置", icon: "settings-2", reduceMotion: reduceMotion, action: settings)
+            MenuCommandButton(title: "退出", icon: "power", reduceMotion: reduceMotion, action: { NSApplication.shared.terminate(nil) })
         }
     }
 }
@@ -489,16 +613,26 @@ private struct MenuCommandButton: View {
     let title: String
     let icon: String
     var prominent = false
+    let reduceMotion: Bool
     let action: () -> Void
     @StateObject private var state = MenuCommandButtonState()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var prominentFill: LinearGradient {
+        // Dedicated dark-enough accent gradient so white foreground maintains >= 5.7:1 contrast in both light and dark modes.
+        LinearGradient(
+            colors: [Color(hex: 0x6753C9), Color(hex: 0x523EB0)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 LineIcon(systemName: icon, size: 17)
                 Text(title)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -506,14 +640,18 @@ private struct MenuCommandButton: View {
             .frame(maxWidth: .infinity, minHeight: 57)
             .background(
                 prominent
-                    ? AnyShapeStyle(LinearGradient(colors: [Palette.accent, Palette.accentDark],
-                                                   startPoint: .topLeading, endPoint: .bottomTrailing))
+                    ? AnyShapeStyle(prominentFill)
                     : AnyShapeStyle(state.hovering ? Palette.lavender.opacity(0.82) : Palette.surface.opacity(0.62)),
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(prominent ? Color.clear : Palette.line.opacity(0.82), lineWidth: 1)
+                    .stroke(
+                        prominent
+                            ? (colorScheme == .dark ? Color.white.opacity(0.16) : Color.clear)
+                            : Palette.line.opacity(0.82),
+                        lineWidth: 1
+                    )
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
@@ -549,11 +687,17 @@ enum MenuUsageChartAxis {
 private struct MenuUsageChart: View {
     let history: FatigueHistory
     let date: Date
+    let reduceMotion: Bool
     @StateObject private var revealState = MenuUsageChartRevealState()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var points: [FatiguePlotPoint] {
         history.points(at: date)
+    }
+
+    private var accessibilitySummary: String {
+        guard let latest = points.last else { return "今日暂无疲劳值记录" }
+        let peak = points.map { Int(round($0.activity * 100)) }.max() ?? Int(round(latest.activity * 100))
+        return "当前 \(Int(round(latest.activity * 100)))%，今日峰值 \(peak)%"
     }
 
     var body: some View {
@@ -564,21 +708,26 @@ private struct MenuUsageChart: View {
                     .frame(width: 30, height: 132)
                 MenuUsagePlot(
                     points: points,
-                    revealed: revealState.revealed
+                    revealed: reduceMotion || revealState.revealed
                 )
                 .frame(height: 132)
             }
             MenuUsageXAxis()
         }
         .onAppear {
-            revealState.revealed = false
-            DispatchQueue.main.async {
+            if reduceMotion {
                 revealState.revealed = true
+            } else {
+                revealState.revealed = false
+                DispatchQueue.main.async {
+                    revealState.revealed = true
+                }
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.75), value: revealState.revealed)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("今日疲劳值曲线")
+        .accessibilityValue(accessibilitySummary)
     }
 }
 
@@ -611,7 +760,7 @@ private struct MenuUsageYAxis: View {
             ForEach(MenuUsageChartAxis.activityPercents, id: \.self) { value in
                 Text("\(value)%")
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(Palette.secondary.opacity(0.64))
+                    .foregroundStyle(Palette.secondary)
                     .frame(width: 30, alignment: .trailing)
                     .position(
                         x: 15,
@@ -737,8 +886,8 @@ private struct MenuUsageXAxis: View {
             GeometryReader { proxy in
                 ForEach(MenuUsageChartAxis.hours, id: \.self) { hour in
                     Text("\(hour)")
-                        .font(.system(size: 8, weight: .regular, design: .monospaced))
-                        .foregroundStyle(Palette.secondary.opacity(0.64))
+                        .font(.system(size: 9, weight: .regular, design: .monospaced))
+                        .foregroundStyle(Palette.secondary)
                         .frame(width: 18)
                         .position(
                             x: MenuUsageChartAxis.xPosition(
